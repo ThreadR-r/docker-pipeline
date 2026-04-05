@@ -1,0 +1,108 @@
+# GitHub Actions CI/CD for Python Template
+# This workflow installs dependencies, runs linting, type checks, security checks, tests, and deploys.
+
+
+name: CI/CD
+
+on:
+  push:
+    tags:
+      - 'v*'
+    branches: [ main]
+
+
+jobs:
+  compute-env:
+    runs-on: ubuntu-latest
+    outputs:
+      docker_tag: ${{ steps.settag.outputs.docker_tag }}
+      push_latest: ${{ steps.settag.outputs.push_latest }}
+    steps:
+      - name: Compute docker tag
+        id: settag
+        run: |
+          # If this is a push to the main branch -> tag as 'dev'
+          if [[ "$GITHUB_EVENT_NAME" == "push" && "$GITHUB_REF" == "refs/heads/main" ]]; then
+            DOCKER_TAG="dev"
+            PUSH_LATEST="false"
+          # If this is a push of a tag (refs/tags/v*) -> use the tag name and also push 'latest'
+          elif [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            DOCKER_TAG="${GITHUB_REF#refs/tags/}"
+            PUSH_LATEST="true"
+          else
+            echo "Unable to determine docker tag for event: $GITHUB_EVENT_NAME ref: $GITHUB_REF"
+            exit 1
+          fi
+          echo "docker_tag=$DOCKER_TAG" >> $GITHUB_OUTPUT
+          echo "push_latest=$PUSH_LATEST" >> $GITHUB_OUTPUT
+          echo "Computed docker_tag: $DOCKER_TAG push_latest: $PUSH_LATEST"
+
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+
+      - name: Export and Install project dependencies
+        run: |
+          /root/.local/bin/uv sync --frozen
+
+      - name: Lint with ruff
+        run: /root/.local/bin/uvx run ruff check src tests
+        continue-on-error: true
+
+      - name: Type check with ty
+        run: /root/.local/bin/uvx run ty check src
+        continue-on-error: true
+
+      - name: Security check with bandit
+        run: /root/.local/bin/uvx run bandit -r src
+        continue-on-error: true
+
+      - name: Run TruffleHog
+        uses: trufflesecurity/trufflehog@main
+        with:
+          extra_args: --results=verified,unknown
+
+      - name: Run tests
+        run: |
+          /root/.local/bin/uvx run pytest tests
+
+  hadolint:
+    runs-on: ubuntu-latest
+    needs: [tests]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run hadolint on Dockerfile
+        uses: hadolint/hadolint-action@v3.3.0
+
+  publish:
+    needs: [tests, hadolint]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: https://github.com/docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        run: |
+          docker build -f Dockerfile \
+            -t ${{ vars.DOCKER_IMAGE_URI }}:${{ needs.compute-env.outputs.docker_tag }} .
+        shell: sh
+
+      - name: Push Docker image
+        run: |
+          docker push ${{ vars.DOCKER_IMAGE_URI }}:${{ needs.compute-env.outputs.docker_tag }}
+          if [ "${{ needs.compute-env.outputs.push_latest }}" = "true" ]; then
+            docker tag ${{ vars.DOCKER_IMAGE_URI }}:${{ needs.compute-env.outputs.docker_tag }} ${{ vars.DOCKER_IMAGE_URI }}:latest
+            docker push ${{ vars.DOCKER_IMAGE_URI }}:latest
+          fi
+        shell: sh
