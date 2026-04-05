@@ -8,6 +8,8 @@ Docker-Pipeline — lightweight declarative orchestrator to run Docker steps.
 
 A compact scheduler and runner for YAML pipelines: each step runs a real Docker container with options for pull policy, retries, timeouts and removal rules. Hooks can be attached for remediation or notification on failures.
 
+Tired of having to use heavy orchestrators like Kestra or Apache Airflow just to run simple pipelines, I created Docker-Pipeline as a lightweight, auditable alternative.
+
 **Why use Docker-Pipeline** 💡
 - **Audit-friendly**: pipelines are plain YAML — easy to review and version.
 - **Real behavior**: steps run inside Docker containers (same as CI).
