@@ -15,8 +15,8 @@ jobs:
   compute-env:
     runs-on: ubuntu-latest
     outputs:
-      docker_tag: ${{ steps.settag.outputs.docker_tag }}
       push_latest: ${{ steps.settag.outputs.push_latest }}
+      tags: ${{ steps.meta.outputs.tags }}
     steps:
       - name: Compute docker tag
         id: settag
@@ -36,6 +36,14 @@ jobs:
           echo "docker_tag=$DOCKER_TAG" >> $GITHUB_OUTPUT
           echo "push_latest=$PUSH_LATEST" >> $GITHUB_OUTPUT
           echo "Computed docker_tag: $DOCKER_TAG push_latest: $PUSH_LATEST"
+      - name: Compose docker build tags
+        id: meta
+        run: |
+          if [ "${{ steps.settag.outputs.push_latest }}" = "true" ]; then
+            echo "tags=${{ vars.DOCKER_IMAGE_URI }}:${{ steps.settag.outputs.docker_tag }},${{ vars.DOCKER_IMAGE_URI }}:latest" >> $GITHUB_OUTPUT
+          else
+            echo "tags=${{ vars.DOCKER_IMAGE_URI }}:${{ steps.settag.outputs.docker_tag }}" >> $GITHUB_OUTPUT
+          fi
 
   tests:
     runs-on: ubuntu-latest
@@ -82,8 +90,16 @@ jobs:
         uses: hadolint/hadolint-action@v3.3.0
 
   publish:
-    needs: [tests, hadolint]
+    needs: [tests, hadolint, compute-env]
+
+    permissions:
+      contents: read
+      packages: write
+      attestations: write
+      id-token: write
+
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -91,17 +107,18 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
-      - name: Build Docker image
-        run: |
-          docker build -f Dockerfile \
-            -t ${{ vars.DOCKER_IMAGE_URI }}:${{ needs.compute-env.outputs.docker_tag }} .
-        shell: sh
+      - name: Log in to the Container registry
+        uses: docker/login-action@65b78e6e13532edd9afa3aa52ac7964289d1a9c1
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Push Docker image
-        run: |
-          docker push ${{ vars.DOCKER_IMAGE_URI }}:${{ needs.compute-env.outputs.docker_tag }}
-          if [ "${{ needs.compute-env.outputs.push_latest }}" = "true" ]; then
-            docker tag ${{ vars.DOCKER_IMAGE_URI }}:${{ needs.compute-env.outputs.docker_tag }} ${{ vars.DOCKER_IMAGE_URI }}:latest
-            docker push ${{ vars.DOCKER_IMAGE_URI }}:latest
-          fi
-        shell: sh
+      - name: Build and push Docker image
+        id: push
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: true
+          file: Dockerfile
+          tags: ${{ needs.compute-env.outputs.tags }}
