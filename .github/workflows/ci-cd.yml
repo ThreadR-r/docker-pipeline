@@ -43,24 +43,23 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        run: |
-          curl -LsSf https://astral.sh/uv/install.sh | sh
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
 
       - name: Export and Install project dependencies
         run: |
-          /root/.local/bin/uv sync --frozen
+          uv sync --frozen
 
       - name: Lint with ruff
-        run: /root/.local/bin/uvx run ruff check src tests
+        run: uv run --with ruff ruff check src tests
         continue-on-error: true
 
       - name: Type check with ty
-        run: /root/.local/bin/uvx run ty check src
+        run: uv run --with ty ty check src
         continue-on-error: true
 
       - name: Security check with bandit
-        run: /root/.local/bin/uvx run bandit -r src
+        run: uv run --with bandit bandit -r src
         continue-on-error: true
 
       - name: Run TruffleHog
@@ -70,7 +69,7 @@ jobs:
 
       - name: Run tests
         run: |
-          /root/.local/bin/uvx run pytest tests
+          uv run --with pytest pytest tests
 
   hadolint:
     runs-on: ubuntu-latest
