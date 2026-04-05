@@ -13,7 +13,6 @@ on:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
-  DOCKER_IMAGE_URI: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
 
 jobs:
   compute-env:
@@ -44,9 +43,9 @@ jobs:
         id: meta
         run: |
           if [ "${{ steps.settag.outputs.push_latest }}" = "true" ]; then
-            echo "tags=${{ env.DOCKER_IMAGE_URI }}:${{ steps.settag.outputs.docker_tag }},${{ env.DOCKER_IMAGE_URI }}:latest" >> $GITHUB_OUTPUT
+            echo "tags=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.settag.outputs.docker_tag }},${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest" >> $GITHUB_OUTPUT
           else
-            echo "tags=${{ env.DOCKER_IMAGE_URI }}:${{ steps.settag.outputs.docker_tag }}" >> $GITHUB_OUTPUT
+            echo "tags=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.settag.outputs.docker_tag }}" >> $GITHUB_OUTPUT
           fi
 
   tests:
