@@ -1,8 +1,12 @@
+
+# Docker-Pipeline 🚀
+
 <p align="center">
   <a href="README.md">English</a> | <a href="README.fr.md">Français</a>
 </p>
 
-# Docker-Pipeline 🚀
+[![CI/CD](https://github.com/ThreadR-r/docker-pipeline/actions/workflows/ci-cd.yml/badge.svg?branch=main)](https://github.com/ThreadR-r/docker-pipeline/actions/workflows/ci-cd.yml)
+
 
 Docker-Pipeline — lightweight declarative orchestrator to run Docker steps.
 

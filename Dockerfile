@@ -51,4 +51,5 @@ ENV PIPELINE_FILE=/app/pipelines/example_pipeline.yaml
 ENV DOCKER_BASE_URL=unix:///var/run/docker.sock
 
 # Run the application using uv which uses the uv-managed venv
-CMD ["uv", "run", "python", "-m", "pipeline_scheduler.interfaces.cli"]
+ENTRYPOINT ["python", "-m", "pipeline_scheduler.interfaces.cli"]
+CMD ["--help"]
