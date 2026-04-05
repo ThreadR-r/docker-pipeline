@@ -1,0 +1,24 @@
+[project]
+name = "pipeline-scheduler"
+version = "0.1.0"
+description = "Docker pipeline scheduler using APScheduler, docker-py, Jinja2 and pydantic"
+requires-python = "==3.14.*"
+dependencies = [
+    "docker",
+    "apscheduler",
+    "PyYAML",
+    "Jinja2",
+    "pydantic",
+    "typer",
+    "loguru",
+    "fastapi",
+    "uvicorn",
+    "pytest>=9.0.2",
+]
+
+[tool.uv]
+# uv will use pyproject to manage the environment
+
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"

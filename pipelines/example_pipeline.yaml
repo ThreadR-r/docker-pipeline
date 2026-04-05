@@ -1,0 +1,11 @@
+metadata:
+  name: simple-pipeline
+  params: {}
+
+steps:
+  - name: hello
+    image: alpine:3.18
+    cmd: ["sh","-c","echo Hello world"]
+    retry: 0
+    timeout: 10
+    on_failure: continue
