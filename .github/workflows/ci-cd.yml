@@ -73,7 +73,7 @@ jobs:
         continue-on-error: true
 
       - name: Security check with bandit
-        run: uv run --with bandit bandit -r src
+        run: uv run --with bandit bandit -r .
         continue-on-error: true
 
       - name: Run TruffleHog
@@ -83,7 +83,7 @@ jobs:
 
       - name: Run tests
         run: |
-          uv run --with pytest pytest tests
+          uv run --group testing pytest -q tests
 
   hadolint:
     runs-on: ubuntu-latest
