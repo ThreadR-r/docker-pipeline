@@ -63,6 +63,7 @@ async def trigger(payload: Dict[str, Any], api_key: str = Depends(get_api_key)):
     """Trigger the pipeline run..."""
 
     # Merge parameters: start from config.pipeline_params then overlay payload pipeline_params
+    assert CONFIG is not None, "CONFIG must be set before handling requests"
     config_params = dict(CONFIG.pipeline_params or {})
     config_params.update(payload.get("pipeline_params", {}))
 
