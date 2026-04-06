@@ -1,10 +1,9 @@
 import os
 import sys
 import json
+from typing import Optional, Annotated
 
 from loguru import logger as _loguru_logger
-from typing import Optional
-
 import typer
 
 from pipeline_scheduler.domain.models import AppConfig, PipelineModel
@@ -86,19 +85,18 @@ def build_config(
 
 @app.command()
 def main(
-    pipeline_path: Optional[str] = typer.Option(None, "--pipeline"),
-    pipeline_params: Optional[str] = typer.Option(None, "--params"),
-    cron_schedule: Optional[str] = typer.Option(None, "--cron-schedule"),
-    docker_url: Optional[str] = typer.Option(None, "--docker-url"),
-    retry: Optional[int] = typer.Option(None, "--retry"),
-    step_timeout: Optional[int] = typer.Option(None, "--step-timeout"),
-    log_level: Optional[str] = typer.Option(None, "--log-level"),
-    # params removed: must be defined in YAML only
-    dry_run: bool = typer.Option(False, "--dry-run"),
-    run_once: bool = typer.Option(False, "--run-once"),
-    api_enabled: bool = typer.Option(True, "--api-enabled"),
-    api_port: Optional[int] = typer.Option(None, "--api-port"),
-    api_host: Optional[str] = typer.Option(None, "--api-host"),
+    pipeline_path: Annotated[Optional[str], typer.Option("--pipeline")] = None,
+    pipeline_params: Annotated[Optional[str], typer.Option("--params")] = None,
+    cron_schedule: Annotated[Optional[str], typer.Option("--cron-schedule")] = None,
+    docker_url: Annotated[Optional[str], typer.Option("--docker-url")] = None,
+    retry: Annotated[Optional[int], typer.Option("--retry")] = None,
+    step_timeout: Annotated[Optional[int], typer.Option("--step-timeout")] = None,
+    log_level: Annotated[Optional[str], typer.Option("--log-level")] = None,
+    dry_run: Annotated[bool, typer.Option("--dry-run")] = False,
+    run_once: Annotated[bool, typer.Option("--run-once")] = False,
+    api_enabled: Annotated[bool, typer.Option("--api-enabled")] = True,
+    api_port: Annotated[Optional[int], typer.Option("--api-port")] = None,
+    api_host: Annotated[Optional[str], typer.Option("--api-host")] = None,
 ):
     config = build_config(
         pipeline_path=pipeline_path,

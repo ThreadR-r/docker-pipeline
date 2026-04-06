@@ -33,7 +33,7 @@ def test_build_config_defaults_logs_example_pipeline(monkeypatch):
     cfg = build_config()
 
     assert isinstance(cfg, AppConfig)
-    assert cfg.pipeline_file == "/app/pipelines/example_pipeline.yaml"
+    assert cfg.pipeline_file == "/app/pipelines/example_pipeline_simple.yaml"
     assert called["info"], (
         "Expected logger.info to be called when falling back to example pipeline"
     )

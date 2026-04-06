@@ -54,7 +54,7 @@ async def trigger(payload: Dict[str, Any], api_key: str = Depends(get_api_key)):
     config_params.update(payload.get("pipeline_params", {}))
 
     try:
-        raw = render_pipeline(path=pipeline_file, params=config_params)
+        raw = render_pipeline(path=config.pipeline_file, params=config_params)
         pipeline = PipelineModel(**raw)
     except Exception as e:
         raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST, detail=str(e))
