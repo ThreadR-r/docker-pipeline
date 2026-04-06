@@ -96,7 +96,7 @@ class PipelineModel(BaseModel):
 
 class AppConfig(BaseModel):
     cron_schedule: Optional[str] = None
-    pipeline_file: str = "/app/pipelines/example_pipeline.yaml"
+    pipeline_file: str = "/app/pipelines/example_pipeline_simple.yaml"
     pipeline_params: Dict[str, Any] = {}
     docker_base_url: Optional[str] = "unix:///var/run/docker.sock"
     retry_on_fail: int = 0

@@ -3,6 +3,7 @@ import threading
 import logging
 
 import uvicorn
+from pipeline_scheduler.interfaces import api as api_module
 
 from pipeline_scheduler.domain.models import AppConfig, PipelineModel
 from pipeline_scheduler.infrastructure.templating import render_pipeline
@@ -44,6 +45,12 @@ def main(
     host = getattr(config, "api_host", None) or os.getenv("API_HOST", "0.0.0.0")
     port = int(getattr(config, "api_port", None) or os.getenv("API_PORT", "8080"))
     logger.info("Starting API server on %s:%s", host, port)
+    # expose the AppConfig instance to API handlers so they reuse the
+    # same configuration as the CLI/server.
+    try:
+        api_module.set_config(config)
+    except Exception:
+        logger.exception("Failed to set API config on API module")
     uvicorn.run(
         "pipeline_scheduler.interfaces.api:app", host=host, port=port, log_level="info"
     )

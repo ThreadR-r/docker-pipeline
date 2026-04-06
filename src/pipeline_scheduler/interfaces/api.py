@@ -12,8 +12,18 @@ from pipeline_scheduler.domain.models import PipelineModel, AppConfig
 from pipeline_scheduler.application.runner import run_pipeline
 from pipeline_scheduler import state
 
-API_KEY_HEADER_NAME = os.getenv("API_KEY_HEADER", "X-API-Key")
+API_KEY_HEADER_NAME = "X-API-Key"
 api_key_header = APIKeyHeader(name=API_KEY_HEADER_NAME, auto_error=False)
+
+# Module-level AppConfig instance to be set by the server so API handlers
+# reuse the same configuration (otherwise standalone API will create a new AppConfig).
+CONFIG: AppConfig | None = None
+
+
+def set_config(cfg: AppConfig) -> None:
+    """Set the AppConfig used by API handlers (called by server.main)."""
+    global CONFIG
+    CONFIG = cfg
 
 
 def _allowed_keys() -> list:
@@ -29,7 +39,10 @@ def _allowed_keys() -> list:
 def get_api_key(key: Optional[str] = Depends(api_key_header)):
     allowed = _allowed_keys()
     if not allowed:
-        raise HTTPException(status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR, detail="API key not configured")
+        raise HTTPException(
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="API key not configured",
+        )
     if not key or key not in allowed:
         raise HTTPException(
             status_code=http_status.HTTP_401_UNAUTHORIZED, detail="Invalid API key"
@@ -49,12 +62,12 @@ async def health():
 async def trigger(payload: Dict[str, Any], api_key: str = Depends(get_api_key)):
     """Trigger the pipeline run..."""
 
-    config = AppConfig()
-    config_params = config.pipeline_params or {}
+    # Merge parameters: start from config.pipeline_params then overlay payload pipeline_params
+    config_params = dict(CONFIG.pipeline_params or {})
     config_params.update(payload.get("pipeline_params", {}))
 
     try:
-        raw = render_pipeline(path=config.pipeline_file, params=config_params)
+        raw = render_pipeline(path=CONFIG.pipeline_file, params=config_params)
         pipeline = PipelineModel(**raw)
     except Exception as e:
         raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST, detail=str(e))
@@ -68,11 +81,13 @@ async def trigger(payload: Dict[str, Any], api_key: str = Depends(get_api_key)):
 
     # concurrency guard
     if state.running.get("job"):
-        raise HTTPException(status_code=http_status.HTTP_409_CONFLICT, detail="Pipeline already running")
+        raise HTTPException(
+            status_code=http_status.HTTP_409_CONFLICT, detail="Pipeline already running"
+        )
 
     job_id = str(uuid.uuid4())
     loop = asyncio.get_running_loop()
-    fut = loop.run_in_executor(None, run_pipeline, pipeline, config)
+    fut = loop.run_in_executor(None, run_pipeline, pipeline, CONFIG)
 
     state.jobs[job_id] = {"status": "running", "pipeline": pipeline.metadata.name}
 
@@ -92,6 +107,8 @@ async def status(job_id: Optional[str] = None, api_key: str = Depends(get_api_ke
     if job_id:
         j = state.jobs.get(job_id)
         if not j:
-            raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="job not found")
+            raise HTTPException(
+                status_code=http_status.HTTP_404_NOT_FOUND, detail="job not found"
+            )
         return j
     return {"running": state.running.get("job"), "jobs_count": len(state.jobs)}
