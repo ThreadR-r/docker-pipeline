@@ -61,8 +61,8 @@ def start_scheduler(config: AppConfig, pipeline: PipelineModel):
         logger.info("Received signal {}, shutting down scheduler", signum)
         try:
             scheduler.shutdown(wait=False)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.error("Error during scheduler shutdown: {}", e)
         raise SystemExit(0)
 
     signal.signal(signal.SIGTERM, _shutdown)

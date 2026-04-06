@@ -1,17 +1,14 @@
+import copy
 import time
+
 from loguru import logger
-from typing import Any
+import docker
+import docker.errors
 
 from pipeline_scheduler.domain.models import PipelineModel
 from pipeline_scheduler.domain.models import StepModel
 from pipeline_scheduler.domain.models import AppConfig
 from pipeline_scheduler.infrastructure.docker_client import get_client, pull_image
-
-try:
-    import docker
-except Exception:
-    docker = None
-import copy
 
 logger = logger.bind(module=__name__)
 
@@ -54,7 +51,7 @@ def run_pipeline(pipeline: PipelineModel, config: AppConfig) -> bool:
 
         while attempt <= retries:
             attempt += 1
-            logger.info("Starting step '%s' attempt %d/%d", name, attempt, retries + 1)
+            logger.info(f"Starting step '{name}' attempt {attempt}/{retries + 1}")
             try:
                 volumes = _parse_volumes(step.volumes)
 
@@ -63,12 +60,12 @@ def run_pipeline(pipeline: PipelineModel, config: AppConfig) -> bool:
                 )
                 try:
                     if pull_policy == "always":
-                        logger.info("Pulling image %s (policy=always)", step.image)
+                        logger.info(f"Pulling image {step.image} (policy=always)")
                         pull_image(client, step.image)
                     elif pull_policy == "if-not-present":
                         try:
                             client.images.get(step.image)
-                            logger.debug("Image %s present locally", step.image)
+                            logger.debug(f"Image {step.image} present locally")
                         except Exception as e:
                             # ImageNotFound may not be exposed in some docker client versions here
                             if getattr(docker, "errors", None) and getattr(
@@ -78,8 +75,7 @@ def run_pipeline(pipeline: PipelineModel, config: AppConfig) -> bool:
 
                                 if isinstance(e, ImageNotFound):
                                     logger.info(
-                                        "Image %s not present locally, pulling",
-                                        step.image,
+                                        f"Image {step.image} not present locally, pulling"
                                     )
                                     pull_image(client, step.image)
                                 else:
@@ -87,26 +83,23 @@ def run_pipeline(pipeline: PipelineModel, config: AppConfig) -> bool:
                             else:
                                 # fallback: attempt to pull if get() failed
                                 logger.info(
-                                    "Image %s not present locally (get() failed), attempting pull",
-                                    step.image,
+                                    f"Image {step.image} not present locally (get() failed), attempting pull"
                                 )
                                 pull_image(client, step.image)
                             logger.info(
-                                "Image %s not present locally, pulling", step.image
+                                f"Image {step.image} not present locally, pulling"
                             )
                             pull_image(client, step.image)
                     elif pull_policy == "never":
                         logger.debug(
-                            "pull_policy=never, skipping pull for %s", step.image
+                            f"pull_policy=never, skipping pull for {step.image}"
                         )
                     else:
                         logger.debug(
-                            "Unknown pull_policy '%s' for %s, skipping pull",
-                            pull_policy,
-                            step.image,
+                            f"Unknown pull_policy '{pull_policy}' for {step.image}, skipping pull"
                         )
                 except docker.errors.APIError as e:
-                    logger.error("Failed to pull image %s: %s", step.image, e)
+                    logger.error(f"Failed to pull image {step.image}: {e}")
                     msg = str(e)
                     if "not implemented: media type" in msg:
                         logger.error(
@@ -132,7 +125,7 @@ def run_pipeline(pipeline: PipelineModel, config: AppConfig) -> bool:
                             msg = str(chunk)
                         logger.info(msg.rstrip("\n"))
                 except Exception:
-                    logger.exception("Error while streaming logs for %s", name)
+                    logger.exception(f"Error while streaming logs for {name}")
 
                 while True:
                     container.reload()
@@ -140,15 +133,11 @@ def run_pipeline(pipeline: PipelineModel, config: AppConfig) -> bool:
                     if status in ("exited", "dead"):
                         break
                     if timeout and (time.time() - start) > timeout:
-                        logger.warning(
-                            "Timeout reached for step '%s', killing container", name
-                        )
+                        logger.warning(f"Timeout reached for step '{name}', killing container")
                         try:
                             container.kill()
                         except Exception:
-                            logger.exception(
-                                "Failed to kill timed out container for %s", name
-                            )
+                            logger.exception(f"Failed to kill timed out container for {name}")
                         break
                     time.sleep(0.5)
 
@@ -162,10 +151,10 @@ def run_pipeline(pipeline: PipelineModel, config: AppConfig) -> bool:
                 final_attempt = attempt == (retries + 1)
 
                 if code == 0:
-                    logger.info("Step '%s' succeeded", name)
+                    logger.info(f"Step '{name}' succeeded")
                     step_succeeded = True
                 else:
-                    logger.error("Step '%s' failed with exit code %s", name, code)
+                    logger.error(f"Step '{name}' failed with exit code {code}")
 
                 # Handle intermediate attempt removal policies (apply only to non-final attempts)
                 try:
@@ -176,8 +165,7 @@ def run_pipeline(pipeline: PipelineModel, config: AppConfig) -> bool:
                                 container.remove()
                             except Exception:
                                 logger.debug(
-                                    "Failed to remove intermediate container for %s",
-                                    name,
+                                    f"Failed to remove intermediate container for {name}"
                                 )
                         elif ri == "on_final_success":
                             # keep id for possible removal if final succeeds
@@ -185,22 +173,23 @@ def run_pipeline(pipeline: PipelineModel, config: AppConfig) -> bool:
                                 intermediate_containers.append(container.id)
                             except Exception:
                                 logger.debug(
-                                    "Failed to record intermediate container id for %s",
-                                    name,
+                                    f"Failed to record intermediate container id for {name}"
                                 )
                             else:
                                 # ri == 'never' -> keep container
                                 pass
                 except Exception:
                     logger.exception(
-                        "Error handling intermediate removal policy for %s", name
+                        f"Error handling intermediate removal policy for {name}"
                     )
 
                 # If this attempt failed and there will be a retry, run on_retry_step if present
                 try:
                     if (not final_attempt) and getattr(step, "on_retry_step", None):
                         try:
-                            retry_nested = copy.deepcopy(step.on_retry_step)
+                            raw_nested = getattr(step, "on_retry_step", None)
+                            assert raw_nested is not None
+                            retry_nested: StepModel = copy.deepcopy(raw_nested)
                             retry_nested.env = retry_nested.env or {}
                             retry_nested.env.update(
                                 {
@@ -212,20 +201,17 @@ def run_pipeline(pipeline: PipelineModel, config: AppConfig) -> bool:
                                 }
                             )
                             logger.info(
-                                "Attempt %d for step '%s' failed — running on_retry_step '%s' before next retry",
-                                attempt,
-                                name,
-                                retry_nested.name or retry_nested.image,
+                                f"Attempt {attempt} for step '{name}' failed — running on_retry_step '{retry_nested.name or retry_nested.image}' before next retry"
                             )
                             # run the retry hook (recursion allowed)
                             run_single_step(retry_nested)
                         except Exception:
                             logger.exception(
-                                "Exception while running on_retry_step for %s", name
+                                f"Exception while running on_retry_step for {name}"
                             )
                 except Exception:
                     logger.exception(
-                        "Error preparing or running on_retry_step for %s", name
+                        f"Error preparing or running on_retry_step for {name}"
                     )
 
                 # If this is the final attempt, handle final-state removal and cleanup of intermediates
@@ -246,9 +232,7 @@ def run_pipeline(pipeline: PipelineModel, config: AppConfig) -> bool:
                                     c.remove()
                                 except Exception:
                                     logger.debug(
-                                        "Failed to remove intermediate container %s for %s",
-                                        cid,
-                                        name,
+                                        f"Failed to remove intermediate container {cid} for {name}"
                                     )
 
                         # Decide whether to remove the final attempt container based on policy
@@ -266,13 +250,9 @@ def run_pipeline(pipeline: PipelineModel, config: AppConfig) -> bool:
                             try:
                                 container.remove()
                             except Exception:
-                                logger.debug(
-                                    "Failed to remove final container for %s", name
-                                )
+                                logger.debug(f"Failed to remove final container for {name}")
                     except Exception:
-                        logger.exception(
-                            "Error handling final removal policy for %s", name
-                        )
+                        logger.exception(f"Error handling final removal policy for {name}")
 
                 # If step succeeded, stop retrying, otherwise decide on retry/backoff
                 if step_succeeded:
@@ -280,23 +260,25 @@ def run_pipeline(pipeline: PipelineModel, config: AppConfig) -> bool:
                 else:
                     if attempt <= retries:
                         backoff = 2 ** (attempt - 1)
-                        logger.info("Retrying in %s seconds", backoff)
+                        logger.info(f"Retrying in {backoff} seconds")
                         time.sleep(backoff)
                     else:
-                        logger.error("No more retries for step '%s'", name)
+                        logger.error(f"No more retries for step '{name}'")
 
             except Exception:
-                logger.exception("Exception while running step '%s'", name)
+                logger.exception(f"Exception while running step '{name}'")
                 if attempt <= retries:
                     backoff = 2 ** (attempt - 1)
                     time.sleep(backoff)
                 else:
-                    logger.error("No more retries for step '%s' after exception", name)
+                    logger.error(f"No more retries for step '{name}' after exception")
 
         # If the step failed after all retries and there is an on_failure_step, run it
         if not step_succeeded and getattr(step, "on_failure_step", None):
             try:
-                nested = copy.deepcopy(step.on_failure_step)
+                raw_nested = getattr(step, "on_failure_step", None)
+                assert raw_nested is not None
+                nested: StepModel = copy.deepcopy(raw_nested)
                 # inject failure context env vars
                 nested.env = nested.env or {}
                 nested.env.update(
@@ -309,35 +291,28 @@ def run_pipeline(pipeline: PipelineModel, config: AppConfig) -> bool:
                     }
                 )
                 logger.info(
-                    "Step '%s' failed — running on_failure_step '%s'",
-                    name,
-                    nested.name or nested.image,
+                    f"Step '{name}' failed — running on_failure_step '{nested.name or nested.image}'"
                 )
                 # recursion allowed: nested may have its own on_failure_step
                 run_single_step(nested)
                 logger.info(
-                    "on_failure_step '%s' for '%s' completed",
-                    nested.name or nested.image,
-                    name,
+                    f"on_failure_step '{nested.name or nested.image}' for '{name}' completed"
                 )
             except Exception:
-                logger.exception("Exception while running on_failure_step for %s", name)
+                logger.exception(f"Exception while running on_failure_step for {name}")
 
         return step_succeeded
 
     # main pipeline loop: run each step via helper and honor on_failure string after running any on_failure_step
     for i, step in enumerate(pipeline.steps):
         name = step.name or step.image
-        on_failure = (
-            step.on_failure if step.on_failure is not None else config.on_failure
-        )
 
         ok = run_single_step(step)
 
         if not ok:
             overall_success = False
-            if on_failure == "abort":
-                logger.error("Aborting pipeline due to failure in step '%s'", name)
+            if step.on_failure == "abort":
+                logger.error(f"Aborting pipeline due to failure in step '{name}'")
                 try:
                     remaining = pipeline.steps[i + 1 :]
                 except Exception:
@@ -345,26 +320,18 @@ def run_pipeline(pipeline: PipelineModel, config: AppConfig) -> bool:
 
                 if remaining:
                     logger.info(
-                        "The following %d step(s) were NOT executed due to abort:",
-                        len(remaining),
+                        f"The following {len(remaining)} step(s) were NOT executed due to abort:"
                     )
                     for idx, s in enumerate(remaining, start=i + 2):
                         step_label = s.name or s.image
-                        logger.info("  %d. %s  cmd=%s", idx, step_label, s.cmd)
-                        try:
-                            print(f"SKIPPED: {idx}. {step_label} cmd={s.cmd}")
-                        except Exception:
-                            print(
-                                "SKIPPED: {}. {} cmd={}".format(idx, step_label, s.cmd)
-                            )
+                        logger.info(f"  {idx}. {step_label}  cmd={s.cmd}")
                 else:
                     logger.info("No remaining steps to run after failure.")
 
                 break
             else:
                 logger.warning(
-                    "Continuing pipeline after failure in step '%s' (on_failure=continue)",
-                    name,
+                    f"Continuing pipeline after failure in step '{name}' (on_failure=continue)"
                 )
 
     return overall_success

@@ -11,7 +11,7 @@ type:
     uv run --with ty ty check .
 
 test:
-    uv run --with pytest pytest -q
+    uv run --group testing pytest -q tests
 
 security:
     # Disabled binding to all interfaces as it is the user responsibility to run this in a secure environment;

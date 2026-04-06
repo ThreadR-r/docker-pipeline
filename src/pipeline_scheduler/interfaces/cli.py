@@ -1,16 +1,17 @@
 import os
-import json
 import sys
+import json
+
 from loguru import logger as _loguru_logger
-from typing import Optional, Dict, Any
+from typing import Optional
 
 import typer
 
 from pipeline_scheduler.domain.models import AppConfig, PipelineModel
 from pipeline_scheduler.infrastructure.templating import render_pipeline
 from pipeline_scheduler.application.scheduler import start_scheduler
+from pipeline_scheduler.application.runner import run_pipeline
 from pipeline_scheduler.interfaces import server
-from pipeline_scheduler import state
 
 logger = _loguru_logger.bind(module=__name__)
 
@@ -19,12 +20,14 @@ app = typer.Typer()
 
 def build_config(
     pipeline_path: Optional[str] = None,
+    pipeline_params: Optional[str] = None,
     docker_url: Optional[str] = None,
+    cron_schedule: Optional[str] = None,
     retry: Optional[int] = None,
     step_timeout: Optional[int] = None,
-    on_failure: Optional[str] = None,
     log_level: Optional[str] = None,
-    params: Optional[str] = None,
+    api_port: Optional[int] = None,
+    api_host: Optional[str] = None,
 ) -> AppConfig:
     """Construct AppConfig from CLI parameters and environment variables.
 
@@ -33,13 +36,6 @@ def build_config(
     `AppConfig.pipeline_params`.
     """
     env = os.environ
-    cli_params: Dict[str, Any] = {}
-    if params:
-        try:
-            cli_params = json.loads(params)
-        except Exception:
-            logger.error("Failed to parse --params JSON")
-            raise SystemExit(2)
 
     # parse integer fallbacks carefully
     def _int_or(value, fallback: int) -> int:
@@ -51,11 +47,17 @@ def build_config(
             return fallback
 
     cfg = AppConfig(
-        cron_schedule=(env.get("CRON_SCHEDULE") or None),
+        cron_schedule=(cron_schedule or env.get("CRON_SCHEDULE") or None),
+        # determine pipeline file and log if falling back to the example pipeline
         pipeline_file=(
             pipeline_path
             or env.get("PIPELINE_FILE")
-            or "/app/pipelines/example_pipeline.yaml"
+            or "/app/pipelines/example_pipeline_simple.yaml"
+        ),
+        pipeline_params=(
+            json.loads(pipeline_params)
+            if pipeline_params is not None
+            else json.loads(env.get("PIPELINE_PARAMS", "{}"))
         ),
         docker_base_url=(
             docker_url or env.get("DOCKER_BASE_URL") or "unix:///var/run/docker.sock"
@@ -66,44 +68,57 @@ def build_config(
         step_timeout=_int_or(
             step_timeout if step_timeout is not None else env.get("STEP_TIMEOUT"), 0
         ),
-        on_failure=(on_failure or env.get("ON_FAILURE") or "abort"),
         log_level=(log_level or env.get("LOG_LEVEL") or "INFO"),
-        pipeline_params=cli_params or json.loads(env.get("PIPELINE_PARAMS") or "{}"),
-        template_strict=(not (env.get("TEMPLATE_STRICT") in ("0", "false", "False"))),
+        # pipeline params removed from AppConfig; they must be specified in YAML
+        api_host=(api_host or env.get("API_HOST") or "0.0.0.0"),
+        api_port=_int_or(
+            api_port if api_port is not None else env.get("API_PORT"), 8080
+        ),
     )
+    # log when using bundled example pipeline (no CLI arg and no PIPELINE_FILE env)
+    if not pipeline_path and not env.get("PIPELINE_FILE"):
+        logger.info(
+            "No pipeline specified via --pipeline or PIPELINE_FILE; using example pipeline: %s",
+            cfg.pipeline_file,
+        )
     return cfg
 
 
 @app.command()
 def main(
     pipeline_path: Optional[str] = typer.Option(None, "--pipeline"),
+    pipeline_params: Optional[str] = typer.Option(None, "--params"),
+    cron_schedule: Optional[str] = typer.Option(None, "--cron-schedule"),
     docker_url: Optional[str] = typer.Option(None, "--docker-url"),
     retry: Optional[int] = typer.Option(None, "--retry"),
     step_timeout: Optional[int] = typer.Option(None, "--step-timeout"),
-    on_failure: Optional[str] = typer.Option(None, "--on-failure"),
     log_level: Optional[str] = typer.Option(None, "--log-level"),
-    params: Optional[str] = typer.Option(None, "--params"),
+    # params removed: must be defined in YAML only
     dry_run: bool = typer.Option(False, "--dry-run"),
+    run_once: bool = typer.Option(False, "--run-once"),
+    api_enabled: bool = typer.Option(True, "--api-enabled"),
+    api_port: Optional[int] = typer.Option(None, "--api-port"),
+    api_host: Optional[str] = typer.Option(None, "--api-host"),
 ):
     config = build_config(
         pipeline_path=pipeline_path,
+        pipeline_params=pipeline_params,
+        cron_schedule=cron_schedule,
         docker_url=docker_url,
         retry=retry,
         step_timeout=step_timeout,
-        on_failure=on_failure,
         log_level=log_level,
-        params=params,
+        api_port=api_port,
+        api_host=api_host,
     )
 
     # configure loguru to write to stdout with the requested level
     logger.remove()
     logger.add(sys.stdout, level=config.log_level.upper())
 
-    # render pipeline
+    # render pipeline (params must be defined within the YAML file itself)
     try:
-        raw = render_pipeline(
-            config.pipeline_file, config.pipeline_params, strict=config.template_strict
-        )
+        raw = render_pipeline(config.pipeline_file)
     except Exception:
         logger.exception("Failed to load/render pipeline file %s", config.pipeline_file)
         raise SystemExit(2)
@@ -114,9 +129,9 @@ def main(
         logger.exception("Pipeline validation error")
         raise SystemExit(2)
 
-    # pipeline metadata schedule override
+    # pipeline metadata schedule override: prefer explicit CLI/env over metadata
     schedule_expr = getattr(pipeline.metadata, "schedule", None)
-    if schedule_expr and not os.environ.get("CRON_SCHEDULE"):
+    if schedule_expr and not config.cron_schedule:
         config.cron_schedule = schedule_expr
 
     if dry_run:
@@ -130,6 +145,23 @@ def main(
 
     # Determine if pipeline has a schedule (new 'schedule')
     schedule_expr = getattr(pipeline.metadata, "schedule", None)
+    # Respect RUN_ONCE env var if set and CLI flag not given
+    if not run_once:
+        run_once = os.getenv("RUN_ONCE", "false").lower() in ("1", "true", "yes")
+
+    # If user requested a one-shot run, execute pipeline once and exit
+    if run_once:
+        try:
+            ok = run_pipeline(pipeline, config)
+            if ok:
+                logger.info("One-shot pipeline run completed successfully")
+                return
+            else:
+                logger.error("One-shot pipeline run failed")
+                raise SystemExit(3)
+        except Exception:
+            logger.exception("Failed to run pipeline once")
+            raise SystemExit(3)
 
     if api_enabled:
         # start server which will look at pipeline.metadata.schedule to decide scheduling
@@ -151,7 +183,7 @@ def main(
                 raise SystemExit(3)
         else:
             logger.error(
-                "Pipeline is untrigable: no schedule in pipeline metadata and API is disabled. The pipeline will never run. Exiting."
+                "Pipeline is untrigable: no schedule in pipeline metadata and API is disabled. Use --run-once to execute once. Exiting."
             )
             raise SystemExit(4)
 

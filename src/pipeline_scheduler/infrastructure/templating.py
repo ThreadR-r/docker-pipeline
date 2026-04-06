@@ -1,13 +1,13 @@
-from jinja2 import Environment, StrictUndefined, Undefined
+from jinja2 import Environment, StrictUndefined
 import yaml
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 logger = logging.getLogger(__name__)
 
 
 def render_pipeline(
-    path: str, params: Dict[str, Any], strict: bool = True
+    path: str, params: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
     with open(path, "r", encoding="utf-8") as f:
         content = f.read()
@@ -28,7 +28,8 @@ def render_pipeline(
     if isinstance(params, dict):
         merged.update(params)
 
-    env = Environment(undefined=StrictUndefined if strict else Undefined)
+    # Always use strict undefined behavior: missing variables raise errors.
+    env = Environment(undefined=StrictUndefined, autoescape=True)
     template = env.from_string(content)
     rendered = template.render(**merged)
     obj = yaml.safe_load(rendered)

@@ -7,7 +7,6 @@ import uvicorn
 from pipeline_scheduler.domain.models import AppConfig, PipelineModel
 from pipeline_scheduler.infrastructure.templating import render_pipeline
 from pipeline_scheduler.application.scheduler import start_scheduler
-from pipeline_scheduler import state
 
 logger = logging.getLogger(__name__)
 
@@ -20,16 +19,14 @@ def _start_scheduler_in_thread(config: AppConfig, pipeline: PipelineModel):
 
 def main(
     start_scheduler: bool = True,
-    config: AppConfig = None,
-    pipeline: PipelineModel = None,
+    config: AppConfig | None = None,
+    pipeline: PipelineModel | None = None,
 ):
     # Load config and pipeline if not provided
     if config is None:
         config = AppConfig()
     if pipeline is None:
-        raw = render_pipeline(
-            config.pipeline_file, config.pipeline_params, strict=config.template_strict
-        )
+        raw = render_pipeline(path=config.pipeline_file, params=config.pipeline_params)
         pipeline = PipelineModel(**raw)
 
     # Decide whether to start scheduler based on pipeline metadata 'schedule'
@@ -43,9 +40,9 @@ def main(
             "No schedule found in pipeline metadata; automatic scheduling disabled for this pipeline"
         )
 
-    # Start FastAPI server
-    host = os.getenv("API_HOST", "0.0.0.0")
-    port = int(os.getenv("API_PORT", "8080"))
+    # Start FastAPI server: prefer config values, fall back to environment
+    host = getattr(config, "api_host", None) or os.getenv("API_HOST", "0.0.0.0")
+    port = int(getattr(config, "api_port", None) or os.getenv("API_PORT", "8080"))
     logger.info("Starting API server on %s:%s", host, port)
     uvicorn.run(
         "pipeline_scheduler.interfaces.api:app", host=host, port=port, log_level="info"
