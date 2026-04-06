@@ -162,5 +162,3 @@ class ShowPipeline(BaseModel):
     created_at: Optional[str] = None
     steps: List[ShowStep] = []
 
-
-ShowStep.update_forward_refs()

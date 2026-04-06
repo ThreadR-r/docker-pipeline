@@ -23,9 +23,7 @@ from pipeline_scheduler.domain.models import (
     PipelineModel,
     StepModel,
     JobModel,
-    StepStatus,
 )
-from pipeline_scheduler.domain.models import now_iso
 from pipeline_scheduler import state
 import copy
 

@@ -183,8 +183,8 @@ async def show(
         text = render_tree_ascii(sp, color=False)
         if color:
             text_ansi = render_tree_ascii(sp, color=True)
-            return {"tree": sp.dict(), "text": text, "text_ansi": text_ansi}
-        return {"tree": sp.dict(), "text": text}
+            return {"tree": sp.model_dump_json(), "text": text, "text_ansi": text_ansi}
+        return {"tree": sp.model_dump_json(), "text": text}
 
     # static view from configured pipeline
     assert CONFIG is not None, "CONFIG must be set before handling requests"
@@ -199,5 +199,5 @@ async def show(
     text = render_tree_ascii(sp, color=False)
     if color:
         text_ansi = render_tree_ascii(sp, color=True)
-        return {"tree": sp.dict(), "text": text, "text_ansi": text_ansi}
-    return {"tree": sp.dict(), "text": text}
+        return {"tree": sp.model_dump_json(), "text": text, "text_ansi": text_ansi}
+    return {"tree": sp.model_dump_json(), "text": text}
