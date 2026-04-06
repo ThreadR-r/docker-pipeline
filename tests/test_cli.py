@@ -1,5 +1,4 @@
 from typer.testing import CliRunner
-import os
 
 from pipeline_scheduler.interfaces.cli import app, build_config
 

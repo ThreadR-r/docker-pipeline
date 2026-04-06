@@ -1,6 +1,4 @@
 import types
-import pytest
-
 from pipeline_scheduler.application import runner as runner_mod
 from pipeline_scheduler.application.runner import run_pipeline
 from pipeline_scheduler.domain.models import PipelineModel, StepModel, AppConfig
