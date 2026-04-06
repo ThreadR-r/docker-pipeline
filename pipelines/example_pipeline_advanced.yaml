@@ -1,0 +1,26 @@
+metadata:
+  name: advanced-pipeline
+  schedule: "0 * * * *"
+  params: {}
+  start_pipeline_at_start: true
+
+steps:
+  - name: build
+    image: alpine:3.18
+    cmd: ["sh","-c","echo building; exit 1"]
+    retry: 2
+    timeout: 30
+    pull_policy: if-not-present
+    on_retry_step:
+      name: cleanup
+      image: alpine:3.18
+      cmd: ["sh","-c","echo cleanup before retry for ${RETRY_FOR_STEP}"]
+    on_failure_step:
+      name: notify
+      image: alpine:3.18
+      cmd: ["sh","-c","echo pipeline failed for ${FAILED_STEP} code=${FAILED_EXIT_CODE}"]
+    on_failure: abort
+  - name: notify-final
+    image: alpine:3.18
+    cmd: ["sh","-c","echo pipeline end"]
+    retry: 0
