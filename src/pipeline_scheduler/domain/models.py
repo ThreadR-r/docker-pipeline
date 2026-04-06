@@ -120,6 +120,8 @@ class StepStatus(BaseModel):
     started_at: Optional[str] = None
     ended_at: Optional[str] = None
     last_exit_code: Optional[int] = None
+    # history of attempts for this step (filled during execution when job state is enabled)
+    attempts: List[Dict[str, Any]] = []
 
 
 class JobModel(BaseModel):
@@ -132,3 +134,33 @@ class JobModel(BaseModel):
     ended_at: Optional[str] = None
     current_step: Optional[StepStatus] = None
     steps: List[StepStatus] = []
+
+
+# Models for the show/tree API
+class AttemptInfo(BaseModel):
+    attempt: int
+    exit_code: Optional[int] = None
+    started_at: Optional[str] = None
+    ended_at: Optional[str] = None
+    note: Optional[str] = None
+
+
+class ShowStep(BaseModel):
+    index: int
+    total: int
+    name: str
+    configured_retry: Optional[int] = None
+    configured_timeout: Optional[int] = None
+    status: str = Field("pending")
+    attempts: List[AttemptInfo] = []
+    children: List["ShowStep"] = []
+    hook: Optional[str] = None  # None | "on_retry_step" | "on_failure_step"
+
+
+class ShowPipeline(BaseModel):
+    name: Optional[str] = None
+    created_at: Optional[str] = None
+    steps: List[ShowStep] = []
+
+
+ShowStep.update_forward_refs()

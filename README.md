@@ -90,6 +90,23 @@ docker run --rm -it \
   --pipeline /app/pipelines/example_pipeline_simple.yaml --run-once
 ```
 
+## Show the pipeline structure
+
+Use `--show` to print the pipeline structure as an ASCII tree without executing it. This is useful for visual validation of the pipeline.
+
+```bash
+uv run python -m pipeline_scheduler.interfaces.cli --pipeline ./pipelines/example_pipeline_simple.yaml --show
+```
+
+Using Docker:
+
+```bash
+docker run --rm \
+  -v ./pipelines/example_pipeline_simple.yaml:/app/pipelines/example_pipeline_simple.yaml:ro \
+  ghcr.io/threadr-r/docker-pipeline:latest \
+  --pipeline /app/pipelines/example_pipeline_simple.yaml --show
+```
+
 ## Configuration (env & CLI) ⚙️
 | Env parameter | CLI parameter | Type | Description |
 |---------------|---------------|------|-------------|

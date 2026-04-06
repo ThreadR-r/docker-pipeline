@@ -17,6 +17,11 @@ from pipeline_scheduler.domain.models import (
 from pipeline_scheduler.application.runner import run_pipeline
 from pipeline_scheduler import state
 from pipeline_scheduler.domain.models import now_iso
+from pipeline_scheduler.utils.tree import (
+    build_static_tree,
+    build_live_tree,
+    render_tree_ascii,
+)
 
 API_KEY_HEADER_NAME = "X-API-Key"
 api_key_header = APIKeyHeader(name=API_KEY_HEADER_NAME, auto_error=False)
@@ -154,3 +159,45 @@ async def status(job_id: Optional[str] = None, api_key: str = Depends(get_api_ke
         "jobs_count": len(state.jobs),
         "jobs": state.jobs,
     }
+
+
+@app.get("/api/v1/show")
+async def show(
+    job_id: Optional[str] = None,
+    color: bool = False,
+    api_key: str = Depends(get_api_key),
+):
+    """Show a pipeline tree.
+
+    If `job_id` is provided, return a live view based on current job state.
+    Otherwise return a static view of the configured pipeline.
+    """
+    if job_id:
+        with state.jobs_lock:
+            j: JobModel | None = state.jobs.get(job_id)
+            if not j:
+                raise HTTPException(
+                    status_code=http_status.HTTP_404_NOT_FOUND, detail="job not found"
+                )
+            sp = build_live_tree(j, pipeline=None)
+        text = render_tree_ascii(sp, color=False)
+        if color:
+            text_ansi = render_tree_ascii(sp, color=True)
+            return {"tree": sp.dict(), "text": text, "text_ansi": text_ansi}
+        return {"tree": sp.dict(), "text": text}
+
+    # static view from configured pipeline
+    assert CONFIG is not None, "CONFIG must be set before handling requests"
+    try:
+        raw = render_pipeline(
+            path=CONFIG.pipeline_file, params=CONFIG.pipeline_params or {}
+        )
+        pipeline = PipelineModel(**raw)
+    except Exception as e:
+        raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST, detail=str(e))
+    sp = build_static_tree(pipeline)
+    text = render_tree_ascii(sp, color=False)
+    if color:
+        text_ansi = render_tree_ascii(sp, color=True)
+        return {"tree": sp.dict(), "text": text, "text_ansi": text_ansi}
+    return {"tree": sp.dict(), "text": text}

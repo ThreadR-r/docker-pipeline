@@ -11,6 +11,7 @@ from pipeline_scheduler.infrastructure.templating import render_pipeline
 from pipeline_scheduler.application.scheduler import start_scheduler
 from pipeline_scheduler.application.runner import run_pipeline
 from pipeline_scheduler.interfaces import server
+from pipeline_scheduler.utils.tree import build_static_tree, render_tree_ascii
 
 logger = _loguru_logger.bind(module=__name__)
 
@@ -93,6 +94,10 @@ def main(
     step_timeout: Annotated[Optional[int], typer.Option("--step-timeout")] = None,
     log_level: Annotated[Optional[str], typer.Option("--log-level")] = None,
     dry_run: Annotated[bool, typer.Option("--dry-run")] = False,
+    show: Annotated[
+        bool,
+        typer.Option("--show"),
+    ] = False,
     run_once: Annotated[bool, typer.Option("--run-once")] = False,
     api_enabled: Annotated[bool, typer.Option("--api-enabled")] = True,
     api_port: Annotated[Optional[int], typer.Option("--api-port")] = None,
@@ -136,6 +141,11 @@ def main(
         logger.info("Dry run: pipeline validated and rendered. Steps:")
         for s in pipeline.steps:
             logger.info("- {}: {}", s.name or s.image, s.cmd)
+        return
+
+    if show:
+        sp = build_static_tree(pipeline)
+        print(render_tree_ascii(sp=sp, color=True))
         return
 
     # Decide mode based on environment: API vs CLI

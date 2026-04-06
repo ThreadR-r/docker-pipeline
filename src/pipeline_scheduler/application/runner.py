@@ -176,6 +176,25 @@ def run_pipeline(
                         code = None
                 last_exit_code = code
 
+                # record attempt history in job state if enabled
+                if job is not None:
+                    try:
+                        with state.jobs_lock:
+                            ss = job.steps[i]
+                            ss.attempts = ss.attempts or []
+                            ss.attempts.append(
+                                {
+                                    "exit_code": code,
+                                    "started_at": ss.started_at,
+                                    "ended_at": now_iso(),
+                                    "note": f"attempt {attempt}",
+                                }
+                            )
+                    except Exception:
+                        logger.exception(
+                            "Failed to record attempt in job state for step %s", name
+                        )
+
                 # determine whether this is the final attempt for this step
                 final_attempt = attempt == (retries + 1)
 
