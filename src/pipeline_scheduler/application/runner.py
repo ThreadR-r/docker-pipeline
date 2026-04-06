@@ -8,6 +8,8 @@ import docker.errors
 from pipeline_scheduler.domain.models import PipelineModel
 from pipeline_scheduler.domain.models import StepModel
 from pipeline_scheduler.domain.models import AppConfig
+from pipeline_scheduler.domain.models import now_iso
+from pipeline_scheduler import state
 from pipeline_scheduler.infrastructure.docker_client import get_client, pull_image
 
 logger = logger.bind(module=__name__)
@@ -29,7 +31,9 @@ def _parse_volumes(vols):
     return binds
 
 
-def run_pipeline(pipeline: PipelineModel, config: AppConfig) -> bool:
+def run_pipeline(
+    pipeline: PipelineModel, config: AppConfig, job_id: str | None = None
+) -> bool:
     try:
         client = get_client(config.docker_base_url)
     except Exception:
@@ -38,8 +42,21 @@ def run_pipeline(pipeline: PipelineModel, config: AppConfig) -> bool:
 
     overall_success = True
 
+    # If job_id provided, try to set started_at and status
+    job = None
+    if job_id:
+        try:
+            with state.jobs_lock:
+                job = state.jobs.get(job_id)
+                if job:
+                    job.started_at = now_iso()
+                    job.status = "running"
+                    state.running["job"] = job_id
+        except Exception:
+            logger.exception("Failed to initialize job state for job_id=%s", job_id)
+
     # helper: run a single StepModel (including retries, timeouts, removal policies)
-    def run_single_step(step: StepModel) -> bool:
+    def run_single_step(step: StepModel) -> tuple[bool, int | None]:
         name = step.name or step.image
         retries = step.retry if step.retry is not None else config.retry_on_fail
         timeout = step.timeout if step.timeout is not None else config.step_timeout
@@ -53,6 +70,8 @@ def run_pipeline(pipeline: PipelineModel, config: AppConfig) -> bool:
             attempt += 1
             logger.info(f"Starting step '{name}' attempt {attempt}/{retries + 1}")
             try:
+                # no-op here; per-step job state is managed by outer loop
+                # set up volumes and pull policy
                 volumes = _parse_volumes(step.volumes)
 
                 pull_policy = (
@@ -116,6 +135,8 @@ def run_pipeline(pipeline: PipelineModel, config: AppConfig) -> bool:
                     detach=True,
                 )
 
+                # update job step start (use i from outer scope; we'll set correctly in main loop)
+
                 start = time.time()
                 try:
                     for chunk in container.logs(stream=True, follow=True):
@@ -133,18 +154,26 @@ def run_pipeline(pipeline: PipelineModel, config: AppConfig) -> bool:
                     if status in ("exited", "dead"):
                         break
                     if timeout and (time.time() - start) > timeout:
-                        logger.warning(f"Timeout reached for step '{name}', killing container")
+                        logger.warning(
+                            f"Timeout reached for step '{name}', killing container"
+                        )
                         try:
                             container.kill()
                         except Exception:
-                            logger.exception(f"Failed to kill timed out container for {name}")
+                            logger.exception(
+                                f"Failed to kill timed out container for {name}"
+                            )
                         break
                     time.sleep(0.5)
 
                 res = container.wait()
-                code = res.get("StatusCode") if isinstance(res, dict) else None
-                if code is None:
-                    code = res
+                if isinstance(res, dict):
+                    code = res.get("StatusCode")
+                else:
+                    try:
+                        code = int(res)
+                    except Exception:
+                        code = None
                 last_exit_code = code
 
                 # determine whether this is the final attempt for this step
@@ -250,9 +279,13 @@ def run_pipeline(pipeline: PipelineModel, config: AppConfig) -> bool:
                             try:
                                 container.remove()
                             except Exception:
-                                logger.debug(f"Failed to remove final container for {name}")
+                                logger.debug(
+                                    f"Failed to remove final container for {name}"
+                                )
                     except Exception:
-                        logger.exception(f"Error handling final removal policy for {name}")
+                        logger.exception(
+                            f"Error handling final removal policy for {name}"
+                        )
 
                 # If step succeeded, stop retrying, otherwise decide on retry/backoff
                 if step_succeeded:
@@ -301,13 +334,38 @@ def run_pipeline(pipeline: PipelineModel, config: AppConfig) -> bool:
             except Exception:
                 logger.exception(f"Exception while running on_failure_step for {name}")
 
-        return step_succeeded
+        return step_succeeded, last_exit_code
 
     # main pipeline loop: run each step via helper and honor on_failure string after running any on_failure_step
     for i, step in enumerate(pipeline.steps):
         name = step.name or step.image
 
-        ok = run_single_step(step)
+        # Before running step: update job.current_step and job.steps[i] if job present
+        if job is not None:
+            try:
+                with state.jobs_lock:
+                    ss = job.steps[i]
+                    ss.status = "running"
+                    ss.started_at = now_iso()
+                    job.current_step = ss
+            except Exception:
+                logger.exception("Failed to update job state before step %s", name)
+
+        ok, step_code = run_single_step(step)
+
+        # After step completes: update job step status
+        if job is not None:
+            try:
+                with state.jobs_lock:
+                    ss = job.steps[i]
+                    ss.ended_at = now_iso()
+                    ss.last_exit_code = step_code
+                    ss.status = "succeeded" if ok else "failed"
+                    job.current_step = None
+                    if not ok:
+                        job.status = "failed"
+            except Exception:
+                logger.exception("Failed to update job state after step %s", name)
 
         if not ok:
             overall_success = False
@@ -333,5 +391,18 @@ def run_pipeline(pipeline: PipelineModel, config: AppConfig) -> bool:
                 logger.warning(
                     f"Continuing pipeline after failure in step '{name}' (on_failure=continue)"
                 )
+
+    # finalize job state if present
+    if job is not None:
+        try:
+            with state.jobs_lock:
+                if job.ended_at is None:
+                    job.ended_at = now_iso()
+                # prefer explicit failed status if already set, else set success/failure
+                if job.status not in ("failed", "error"):
+                    job.status = "success" if overall_success else "failed"
+                state.running["job"] = False
+        except Exception:
+            logger.exception("Failed to finalize job state for job_id=%s", job_id)
 
     return overall_success

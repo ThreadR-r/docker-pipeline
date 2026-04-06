@@ -1,5 +1,6 @@
 from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List, Dict, Any
+from datetime import datetime, timezone
 
 
 class StepModel(BaseModel):
@@ -104,3 +105,30 @@ class AppConfig(BaseModel):
     log_level: str = "INFO"
     api_host: str = "0.0.0.0"
     api_port: int = 8080
+
+
+# State models for in-memory job tracking (used by API and scheduler)
+def now_iso() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+
+class StepStatus(BaseModel):
+    index: int
+    total: int
+    name: str
+    status: str = Field("pending")  # pending|running|succeeded|failed
+    started_at: Optional[str] = None
+    ended_at: Optional[str] = None
+    last_exit_code: Optional[int] = None
+
+
+class JobModel(BaseModel):
+    job_id: str
+    pipeline: str
+    status: str = Field("pending")  # pending|running|success|failed|error
+    submitted_by: str  # "api_triggered" | "scheduler"
+    created_at: str = Field(default_factory=now_iso)
+    started_at: Optional[str] = None
+    ended_at: Optional[str] = None
+    current_step: Optional[StepStatus] = None
+    steps: List[StepStatus] = []

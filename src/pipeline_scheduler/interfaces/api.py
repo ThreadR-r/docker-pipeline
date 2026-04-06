@@ -8,9 +8,15 @@ from fastapi import status as http_status
 from fastapi.security.api_key import APIKeyHeader
 
 from pipeline_scheduler.infrastructure.templating import render_pipeline
-from pipeline_scheduler.domain.models import PipelineModel, AppConfig
+from pipeline_scheduler.domain.models import (
+    PipelineModel,
+    AppConfig,
+    JobModel,
+    StepStatus,
+)
 from pipeline_scheduler.application.runner import run_pipeline
 from pipeline_scheduler import state
+from pipeline_scheduler.domain.models import now_iso
 
 API_KEY_HEADER_NAME = "X-API-Key"
 api_key_header = APIKeyHeader(name=API_KEY_HEADER_NAME, auto_error=False)
@@ -87,17 +93,48 @@ async def trigger(payload: Dict[str, Any], api_key: str = Depends(get_api_key)):
         )
 
     job_id = str(uuid.uuid4())
-    loop = asyncio.get_running_loop()
-    fut = loop.run_in_executor(None, run_pipeline, pipeline, CONFIG)
 
-    state.jobs[job_id] = {"status": "running", "pipeline": pipeline.metadata.name}
+    # Build initial JobModel with per-step entries
+    steps = [
+        StepStatus(index=i + 1, total=len(pipeline.steps), name=(s.name or s.image))
+        for i, s in enumerate(pipeline.steps)
+    ]
+
+    job = JobModel(
+        job_id=job_id,
+        pipeline=pipeline.metadata.name or "",
+        submitted_by="api_triggered",
+        steps=steps,
+    )
+
+    # store job under lock and mark running guard
+    with state.jobs_lock:
+        state.jobs[job_id] = job
+        state.running["job"] = job_id
+
+    loop = asyncio.get_running_loop()
+    fut = loop.run_in_executor(None, run_pipeline, pipeline, CONFIG, job_id)
 
     def _done_cb(f):
         try:
             ok = f.result()
-            state.jobs[job_id]["status"] = "success" if ok else "failed"
+            with state.jobs_lock:
+                j: JobModel | None = state.jobs.get(job_id)
+                assert j is not None, "JobModel should exist in state.jobs"
+                if j:
+                    j.status = "success" if ok else "failed"
+                    if j.ended_at is None:
+                        j.ended_at = now_iso()
+                state.running["job"] = False
         except Exception:
-            state.jobs[job_id]["status"] = "error"
+            with state.jobs_lock:
+                j: JobModel | None = state.jobs.get(job_id)
+                assert j is not None, "JobModel should exist in state.jobs"
+                if j:
+                    j.status = "error"
+                    if j.ended_at is None:
+                        j.ended_at = now_iso()
+                state.running["job"] = False
 
     fut.add_done_callback(_done_cb)
     return {"status": "accepted", "job_id": job_id, "pipeline": pipeline.metadata.name}
@@ -106,10 +143,14 @@ async def trigger(payload: Dict[str, Any], api_key: str = Depends(get_api_key)):
 @app.get("/api/v1/status")
 async def status(job_id: Optional[str] = None, api_key: str = Depends(get_api_key)):
     if job_id:
-        j = state.jobs.get(job_id)
+        j: JobModel | None = state.jobs.get(job_id)
         if not j:
             raise HTTPException(
                 status_code=http_status.HTTP_404_NOT_FOUND, detail="job not found"
             )
         return j
-    return {"running": state.running.get("job"), "jobs_count": len(state.jobs)}
+    return {
+        "running": state.running.get("job"),
+        "jobs_count": len(state.jobs),
+        "jobs": state.jobs,
+    }
