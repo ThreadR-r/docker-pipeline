@@ -23,7 +23,7 @@ from pipeline_scheduler.utils.tree import (
     render_tree_ascii,
 )
 
-API_KEY_HEADER_NAME = "X-API-Key"
+API_KEY_HEADER_NAME = os.getenv("API_KEY_HEADER", "X-API-Key")
 api_key_header = APIKeyHeader(name=API_KEY_HEADER_NAME, auto_error=False)
 
 # Module-level AppConfig instance to be set by the server so API handlers
@@ -74,7 +74,11 @@ async def trigger(payload: Dict[str, Any], api_key: str = Depends(get_api_key)):
     """Trigger the pipeline run..."""
 
     # Merge parameters: start from config.pipeline_params then overlay payload pipeline_params
-    assert CONFIG is not None, "CONFIG must be set before handling requests"
+    if CONFIG is None:
+        raise HTTPException(
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Server misconfiguration: CONFIG not initialized",
+        )
     config_params = dict(CONFIG.pipeline_params or {})
     config_params.update(payload.get("pipeline_params", {}))
 
@@ -89,12 +93,6 @@ async def trigger(payload: Dict[str, Any], api_key: str = Depends(get_api_key)):
         raise HTTPException(
             status_code=http_status.HTTP_403_FORBIDDEN,
             detail="API trigger disabled for this pipeline",
-        )
-
-    # concurrency guard
-    if state.running.get("job"):
-        raise HTTPException(
-            status_code=http_status.HTTP_409_CONFLICT, detail="Pipeline already running"
         )
 
     job_id = str(uuid.uuid4())
@@ -112,8 +110,12 @@ async def trigger(payload: Dict[str, Any], api_key: str = Depends(get_api_key)):
         steps=steps,
     )
 
-    # store job under lock and mark running guard
+    # Concurrency guard: check and set atomically under the lock
     with state.jobs_lock:
+        if state.running.get("job"):
+            raise HTTPException(
+                status_code=http_status.HTTP_409_CONFLICT, detail="Pipeline already running"
+            )
         state.jobs[job_id] = job
         state.running["job"] = job_id
 
@@ -125,7 +127,6 @@ async def trigger(payload: Dict[str, Any], api_key: str = Depends(get_api_key)):
             ok = f.result()
             with state.jobs_lock:
                 j: JobModel | None = state.jobs.get(job_id)
-                assert j is not None, "JobModel should exist in state.jobs"
                 if j:
                     j.status = "success" if ok else "failed"
                     if j.ended_at is None:
@@ -134,7 +135,6 @@ async def trigger(payload: Dict[str, Any], api_key: str = Depends(get_api_key)):
         except Exception:
             with state.jobs_lock:
                 j: JobModel | None = state.jobs.get(job_id)
-                assert j is not None, "JobModel should exist in state.jobs"
                 if j:
                     j.status = "error"
                     if j.ended_at is None:
@@ -187,7 +187,11 @@ async def show(
         return {"tree": sp.model_dump_json(), "text": text}
 
     # static view from configured pipeline
-    assert CONFIG is not None, "CONFIG must be set before handling requests"
+    if CONFIG is None:
+        raise HTTPException(
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Server misconfiguration: CONFIG not initialized",
+        )
     try:
         raw = render_pipeline(
             path=CONFIG.pipeline_file, params=CONFIG.pipeline_params or {}

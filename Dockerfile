@@ -47,7 +47,7 @@ USER nonroot
 WORKDIR /app
 
 # Defaults (overridable at runtime)
-ENV PIPELINE_FILE=/app/pipelines/example_pipeline.yaml
+ENV PIPELINE_FILE=/app/pipelines/example_pipeline_simple.yaml
 ENV DOCKER_BASE_URL=unix:///var/run/docker.sock
 
 # Run the application using uv which uses the uv-managed venv

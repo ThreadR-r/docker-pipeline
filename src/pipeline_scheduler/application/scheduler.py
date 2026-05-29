@@ -37,11 +37,6 @@ def start_scheduler(config: AppConfig, pipeline: PipelineModel):
     scheduler = BlockingScheduler()
 
     def job_func():
-        # Concurrency guard using shared state
-        if state.running.get("job"):
-            logger.warning("Previous job still running, skipping this run")
-            return
-
         job_id = str(uuid.uuid4())
 
         # Build initial JobModel for scheduler
@@ -56,7 +51,11 @@ def start_scheduler(config: AppConfig, pipeline: PipelineModel):
             steps=steps,
         )
 
+        # Concurrency guard: check and set atomically under the lock
         with state.jobs_lock:
+            if state.running.get("job"):
+                logger.warning("Previous job still running, skipping this run")
+                return
             state.jobs[job_id] = job
             state.running["job"] = job_id
 

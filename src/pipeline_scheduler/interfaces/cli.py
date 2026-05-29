@@ -26,8 +26,10 @@ def build_config(
     retry: Optional[int] = None,
     step_timeout: Optional[int] = None,
     log_level: Optional[str] = None,
+    api_enabled: Optional[bool] = None,
     api_port: Optional[int] = None,
     api_host: Optional[str] = None,
+    api_key_header: Optional[str] = None,
 ) -> AppConfig:
     """Construct AppConfig from CLI parameters and environment variables.
 
@@ -69,11 +71,16 @@ def build_config(
             step_timeout if step_timeout is not None else env.get("STEP_TIMEOUT"), 0
         ),
         log_level=(log_level or env.get("LOG_LEVEL") or "INFO"),
-        # pipeline params removed from AppConfig; they must be specified in YAML
+        api_enabled=(
+            api_enabled
+            if api_enabled is not None
+            else env.get("API_ENABLED", "true").lower() not in ("0", "false")
+        ),
         api_host=(api_host or env.get("API_HOST") or "0.0.0.0"),
         api_port=_int_or(
             api_port if api_port is not None else env.get("API_PORT"), 8080
         ),
+        api_key_header=(api_key_header or env.get("API_KEY_HEADER") or "X-API-Key"),
     )
     # log when using bundled example pipeline (no CLI arg and no PIPELINE_FILE env)
     if not pipeline_path and not env.get("PIPELINE_FILE"):
@@ -111,6 +118,7 @@ def main(
         retry=retry,
         step_timeout=step_timeout,
         log_level=log_level,
+        api_enabled=api_enabled,
         api_port=api_port,
         api_host=api_host,
     )
@@ -121,7 +129,7 @@ def main(
 
     # render pipeline (params must be defined within the YAML file itself)
     try:
-        raw = render_pipeline(config.pipeline_file)
+        raw = render_pipeline(config.pipeline_file, params=config.pipeline_params)
     except Exception:
         logger.exception("Failed to load/render pipeline file %s", config.pipeline_file)
         raise SystemExit(2)
@@ -148,9 +156,6 @@ def main(
         print(render_tree_ascii(sp=sp, color=True))
         return
 
-    # Decide mode based on environment: API vs CLI
-    api_enabled = os.getenv("API_ENABLED", "true").lower() not in ("0", "false")
-
     # Determine if pipeline has a schedule (new 'schedule')
     schedule_expr = getattr(pipeline.metadata, "schedule", None)
     # Respect RUN_ONCE env var if set and CLI flag not given
@@ -171,7 +176,7 @@ def main(
             logger.exception("Failed to run pipeline once")
             raise SystemExit(3)
 
-    if api_enabled:
+    if config.api_enabled:
         # start server which will look at pipeline.metadata.schedule to decide scheduling
         try:
             server.main(

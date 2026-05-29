@@ -29,7 +29,7 @@ def render_pipeline(
         merged.update(params)
 
     # Always use strict undefined behavior: missing variables raise errors.
-    env = Environment(undefined=StrictUndefined, autoescape=True)
+    env = Environment(undefined=StrictUndefined, autoescape=False)
     template = env.from_string(content)
     rendered = template.render(**merged)
     obj = yaml.safe_load(rendered)

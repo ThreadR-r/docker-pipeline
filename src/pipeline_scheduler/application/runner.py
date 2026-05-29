@@ -105,10 +105,6 @@ def run_pipeline(
                                     f"Image {step.image} not present locally (get() failed), attempting pull"
                                 )
                                 pull_image(client, step.image)
-                            logger.info(
-                                f"Image {step.image} not present locally, pulling"
-                            )
-                            pull_image(client, step.image)
                     elif pull_policy == "never":
                         logger.debug(
                             f"pull_policy=never, skipping pull for {step.image}"

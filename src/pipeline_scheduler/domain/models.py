@@ -103,8 +103,10 @@ class AppConfig(BaseModel):
     retry_on_fail: int = 0
     step_timeout: int = 0
     log_level: str = "INFO"
+    api_enabled: bool = True
     api_host: str = "0.0.0.0"
     api_port: int = 8080
+    api_key_header: str = "X-API-Key"
 
 
 # State models for in-memory job tracking (used by API and scheduler)
