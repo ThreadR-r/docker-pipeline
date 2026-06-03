@@ -1,200 +1,173 @@
 
 # Docker-Pipeline 🚀
 
-<p align="center">
-  <a href="README.md">English</a> | <a href="README.fr.md">Français</a>
-</p>
-
 [![CI/CD](https://github.com/ThreadR-r/docker-pipeline/actions/workflows/ci-cd.yml/badge.svg?branch=main)](https://github.com/ThreadR-r/docker-pipeline/actions/workflows/ci-cd.yml)
 
+Lightweight declarative orchestrator for running sequences of Docker containers. Pipelines are plain YAML — each step runs in a real, isolated container with retries, timeouts, pull policies, removal rules, and lifecycle hooks. No Airflow, no Kestra. Just containers and YAML.
 
-Docker-Pipeline — lightweight declarative orchestrator to run Docker steps.
+## Features ✨
 
-A compact scheduler and runner for YAML pipelines: each step runs a real Docker container with options for pull policy, retries, timeouts and removal rules. Hooks can be attached for remediation or notification on failures.
+- Retries with exponential backoff and per-step timeouts
+- Pull policies: `always`, `never`, `if-not-present`
+- Container removal policies: `always`, `never`, `on_success`, `on_failure`
+- Lifecycle hooks: `on_retry_step` and `on_failure_step` — each hook is itself a Docker container
+- Jinja2-templated pipelines with variable injection via `--params`
+- Cron scheduling via `metadata.schedule`
+- HTTP API for ad-hoc triggers and run status (API-key protected)
+- One-shot CLI execution with `--run-once`
+- Live ASCII tree view of pipeline state with `--show`
 
-Tired of having to use heavy orchestrators like Kestra or Apache Airflow just to run simple pipelines, I created Docker-Pipeline as a lightweight, auditable alternative.
+## Quick Start 🧪
 
-**Why use Docker-Pipeline** 💡
-- **Audit-friendly**: pipelines are plain YAML — easy to review and version.
-- **Real behavior**: steps run inside Docker containers (same as CI).
-- **Fine-grained control**: retries, timeouts, pull policies and removal rules.
-- **Hooks**: `on_retry_step` and `on_failure_step` for automatic actions.
-
-**Highlights** ✨
-- Pydantic-validated models for safety and auditability.
-- Container-first runner: every step runs in an isolated container.
-- Small HTTP API for ad-hoc triggers and run status (API-key protected).
-- Lightweight cron scheduling via `metadata.schedule`.
-
-## Usage modes
-- **API + Scheduler** (default): API enabled and pipeline provides `metadata.schedule`. Useful for pipelines that need both scheduled runs and ad-hoc triggers.
-- **API-only**: API enabled, no `metadata.schedule`. Useful for pipelines that are triggered manually or by external systems, without internal scheduling.
-- **Scheduler-only**: API disabled, pipeline scheduled via `metadata.schedule`. Useful for pipelines that should run on a fixed schedule without external triggers.
-- **CLI-only**: no schedule and no API → one-shot runs / validation. Useful for ad-hoc runs or CI jobs.
-
-
-# Quick start 🧪
-## Dry-Run validation
-### Validate the pipeline without Docker via the package :
+### Dry run — validate without executing
 
 ```bash
-uv run python -m pipeline_scheduler.interfaces.cli --pipeline ./pipelines/example_pipeline_simple.yaml --dry-run
+uv run python -m pipeline_scheduler.interfaces.cli \
+  --pipeline ./pipelines/example_pipeline_simple.yaml --dry-run
 ```
-
-### You can also use Docker to validate the pipeline :
 
 ```bash
 docker run --rm \
-  -v ./example_pipeline_simple.yaml:/pipelines/example_pipeline_simple.yaml:ro \
+  -v $(pwd)/pipelines/example_pipeline_simple.yaml:/app/pipelines/example_pipeline_simple.yaml:ro \
   ghcr.io/threadr-r/docker-pipeline:latest \
-  --pipeline /pipelines/example_pipeline_simple.yaml --dry-run
+  --pipeline /app/pipelines/example_pipeline_simple.yaml --dry-run
 ```
 
-## Run the pipeline
-
-### Run the container as a service with API enabled (default):
+### Run as a service — API + optional cron
 
 ```bash
 docker run --rm -it \
   -v /var/run/docker.sock:/var/run/docker.sock \
-  -v ./pipelines/example_pipeline_simple.yaml:/app/pipelines/example_pipeline_simple.yaml:ro \
-  -e API_ENABLED=true \
+  -v $(pwd)/pipelines/example_pipeline_simple.yaml:/app/pipelines/example_pipeline_simple.yaml:ro \
   -e API_KEY=your_api_key_here \
-  -e API_PORT=8080 \
   -p 8080:8080 \
   ghcr.io/threadr-r/docker-pipeline:latest \
   --pipeline /app/pipelines/example_pipeline_simple.yaml
 ```
 
-From here you can trigger runs via the API (e.g. `curl -X POST http://localhost:8080/api/v1/trigger -H "X-API-Key: your_api_key_here"`) and check the status (e.g. `curl -X GET http://localhost:8080/api/v1/status -H "X-API-Key: your_api_key_here"`) and the health (e.g. `curl -X GET http://localhost:8080/health`).
+Trigger a run:
+```bash
+curl -X POST http://localhost:8080/api/v1/trigger \
+  -H "X-API-Key: your_api_key_here" \
+  -H "Content-Type: application/json" -d '{}'
+```
 
-If a schedule is defined in the pipeline YAML (`metadata.schedule`), the pipeline will also run automatically according to that schedule.
+Check status:
+```bash
+curl http://localhost:8080/api/v1/status -H "X-API-Key: your_api_key_here"
+```
 
-Note: mounting the Docker socket gives control over the host Docker — use with care.
+If `metadata.schedule` is defined in the pipeline YAML, it also runs automatically on that cron.
 
-## One-shot runs (`--run-once` / `RUN_ONCE`)
-
-Use `--run-once` to execute the rendered pipeline a single time and then exit. This is useful for ad-hoc runs or CI jobs where you don't want the scheduler to run.
-
-Examples:
+### Run once — one-shot execution
 
 ```bash
-uv run python -m pipeline_scheduler.interfaces.cli --pipeline pipelines/example_pipeline_simple.yaml --run-once
+uv run python -m pipeline_scheduler.interfaces.cli \
+  --pipeline ./pipelines/example_pipeline_simple.yaml --run-once
 ```
 
 ```bash
-docker run --rm -it \
+docker run --rm \
   -v /var/run/docker.sock:/var/run/docker.sock \
-  -v ./pipelines/example_pipeline_simple.yaml:/app/pipelines/example_pipeline_simple.yaml:ro \
+  -v $(pwd)/pipelines/example_pipeline_simple.yaml:/app/pipelines/example_pipeline_simple.yaml:ro \
   ghcr.io/threadr-r/docker-pipeline:latest \
   --pipeline /app/pipelines/example_pipeline_simple.yaml --run-once
 ```
 
-## Show the pipeline structure
-
-Use `--show` to print the pipeline structure as an ASCII tree without executing it. This is useful for visual validation of the pipeline.
+### Show pipeline structure
 
 ```bash
-uv run python -m pipeline_scheduler.interfaces.cli --pipeline ./pipelines/example_pipeline_simple.yaml --show
+uv run python -m pipeline_scheduler.interfaces.cli \
+  --pipeline ./pipelines/example_pipeline_simple.yaml --show
 ```
 
-Using Docker:
+## Configuration ⚙️
 
-```bash
-docker run --rm \
-  -v ./pipelines/example_pipeline_simple.yaml:/app/pipelines/example_pipeline_simple.yaml:ro \
-  ghcr.io/threadr-r/docker-pipeline:latest \
-  --pipeline /app/pipelines/example_pipeline_simple.yaml --show
-```
+| Env var | CLI flag | Default | Description |
+|---|---|---|---|
+| `PIPELINE_FILE` | `--pipeline` | `/app/pipelines/example_pipeline_simple.yaml` | Path to pipeline YAML |
+| `PIPELINE_PARAMS` | `--params` | `{}` | Jinja2 template params as JSON string |
+| `CRON_SCHEDULE` | `--cron-schedule` | `None` | Override the schedule from pipeline metadata |
+| `DOCKER_BASE_URL` | `--docker-url` | `unix:///var/run/docker.sock` | Docker socket or API URL |
+| `API_ENABLED` | `--api-enabled` | `true` | Enable HTTP API |
+| `API_HOST` | `--api-host` | `0.0.0.0` | API bind host |
+| `API_PORT` | `--api-port` | `8080` | API port |
+| `API_KEY` / `API_KEYS` | env only | none | API key(s); `API_KEYS` is comma-separated |
+| `API_KEY_HEADER` | env only | `X-API-Key` | Header name for API key |
+| `RETRY_ON_FAIL` | `--retry` | `0` | Global retry fallback (per-step setting overrides this) |
+| `STEP_TIMEOUT` | `--step-timeout` | `0` | Default step timeout in seconds (`0` = no limit) |
+| `RUN_ONCE` | `--run-once` | `false` | Execute pipeline once then exit |
+| `LOG_LEVEL` | `--log-level` | `INFO` | Log level |
 
-## Configuration (env & CLI) ⚙️
-| Env parameter | CLI parameter | Type | Description |
-|---------------|---------------|------|-------------|
-| `PIPELINE_FILE` | `--pipeline` | string | Path to pipeline YAML (default `/app/pipelines/example_pipeline_simple.yaml`) |
-| `PIPELINE_PARAMS` | `--params` | string (JSON) | Pipeline template parameters as JSON string (default `{}`) |
-| `CRON_SCHEDULE` | `--cron-schedule` | string | Override schedule (cron expression) |
-| `DOCKER_BASE_URL` | `--docker-url` | string | Docker API URL (default `unix:///var/run/docker.sock`) |
-| `API_ENABLED` | `--api-enabled` | boolean | Enable/disable API (default `true`) |
-| `API_HOST` | `--api-host` | string | API host (default `0.0.0.0`) |
-| `API_PORT` | `--api-port` | integer | API port (default `8080`) |
-| `API_KEY`, `API_KEYS` | (no CLI) | string or comma-separated list | API authentication keys; header name read from `API_KEY_HEADER` (default `X-API-Key`) |
-| `API_KEY_HEADER` | (no CLI) | string | Header name used to provide API key (default `X-API-Key`) |
-| `RETRY_ON_FAIL` | `--retry` | integer | Global retry fallback (default `0`) |
-| `STEP_TIMEOUT` | `--step-timeout` | integer | Default step timeout (seconds) (default `0`) |
-| `RUN_ONCE` | `--run-once` | boolean | If set, execute the pipeline once immediately and exit |
-| `LOG_LEVEL` | `--log-level` | string | Logging level (default `INFO`) |
+CLI flags take precedence over env vars.
 
-## Pipeline schema (short) 🗂️
-- Top-level: `metadata` (name, params, schedule, start_pipeline_at_start) and `steps` (ordered list).
-- StepModel: `name`, `image`, `cmd`, `env`, `volumes`, `pull_policy`, `retry`, `timeout`, `on_failure`, `on_retry_step`, `on_failure_step`, `remove`, `remove_intermediate`.
-
-## Hooks — summary 🔁
-- `on_retry_step`: runs after a failed attempt before the next retry. Injected env vars: `RETRY_FOR_STEP`, `LAST_EXIT_CODE`, `RETRY_ATTEMPT`.
-- `on_failure_step`: runs after retries are exhausted. Injected env vars: `FAILED_STEP`, `FAILED_EXIT_CODE`, `FAILED_ATTEMPT`.
-
-Hooks do not change the runner's decision (retry or final failure); they are for remediation/notification.
-
-## Simple example
-
-`pipelines/example_pipeline_simple.yaml`:
+## Pipeline Schema 🗂️
 
 ```yaml
 metadata:
-  name: simple-pipeline
-  params: {}
+  name: string
+  params: { key: value }              # default Jinja2 template params
+  schedule: "0 * * * *"              # cron expression (optional)
+  start_pipeline_at_start: false      # run once immediately on startup
+  allow_api_trigger: true             # set to false to block API-triggered runs
 
 steps:
-  - name: hello
-    image: alpine:3.18
-    cmd: ["sh","-c","echo Hello world"]
-    retry: 0
-    timeout: 10
-    on_failure: continue
+  - name: string                      # optional, falls back to image name
+    image: string                     # required
+    cmd: ["arg1", "arg2"]            # optional, list or string
+    env: { KEY: value }
+    volumes: ["/host:/container:rw"]
+    pull_policy: if-not-present       # always | never | if-not-present
+    retry: 0                          # number of retry attempts
+    timeout: 0                        # seconds, 0 = no limit
+    on_failure: abort                 # abort | continue
+    remove: always                    # always | never | on_success | on_failure
+    remove_intermediate: always       # always | never | on_final_success
+    on_retry_step:                    # runs between failed attempts
+      image: string
+      cmd: [...]
+    on_failure_step:                  # runs after all retries exhausted
+      image: string
+      cmd: [...]
 ```
 
-## Advanced example
+Pipelines are Jinja2 templates. Pass variables with `--params '{"key": "value"}'` — they merge over `metadata.params` defaults. Missing variables raise immediately (StrictUndefined).
 
-```yaml
-metadata:
-  name: advanced-pipeline
-  schedule: "0 * * * *"
-  params: {}
-  start_pipeline_at_start: true
+### Simple example
 
-steps:
-  - name: build
-    image: alpine:3.18
-    cmd: ["sh","-c","echo building; exit 1"]
-    retry: 2
-    timeout: 30
-    pull_policy: if-not-present
-    on_retry_step:
-      name: cleanup
-      image: alpine:3.18
-      cmd: ["sh","-c","echo cleanup before retry for ${RETRY_FOR_STEP}"]
-    on_failure_step:
-      name: notify
-      image: alpine:3.18
-      cmd: ["sh","-c","echo pipeline failed for ${FAILED_STEP} code=${FAILED_EXIT_CODE}"]
-    on_failure: abort
-  - name: notify-final
-    image: alpine:3.18
-    cmd: ["sh","-c","echo pipeline end"]
-    retry: 0
+See [`pipelines/example_pipeline_simple.yaml`](pipelines/example_pipeline_simple.yaml).
+
+### Advanced example
+
+See [`pipelines/example_pipeline_advanced.yaml`](pipelines/example_pipeline_advanced.yaml) — demonstrates retries, hooks, cron scheduling, and `start_pipeline_at_start`. The `build` step is intentionally set to fail (`exit 1`) to show retry and hook behavior.
+
+## Hooks 🔁
+
+Hooks are full pipeline steps — they can have their own retry logic and their own hooks.
+
+- `on_retry_step` — runs after a failed attempt, before the next retry. Injected env: `RETRY_FOR_STEP`, `LAST_EXIT_CODE`, `RETRY_ATTEMPT`.
+- `on_failure_step` — runs after all retries are exhausted. Injected env: `FAILED_STEP`, `FAILED_EXIT_CODE`, `FAILED_ATTEMPT`.
+
+## API
+
+All endpoints except `/health` require the API key header (`X-API-Key` by default).
+
+| Endpoint | Method | Description |
+|---|---|---|
+| `/health` | GET | Health check — no auth required |
+| `/api/v1/trigger` | POST | Trigger a pipeline run |
+| `/api/v1/status` | GET | Run status; pass `?job_id=` for a specific job |
+| `/api/v1/show` | GET | Pipeline tree; pass `?job_id=` for live state |
+
+## Development 🧰
+
+```bash
+uv sync --group testing              # install deps including test group
+just check                           # lint → type → test → security
+just test                            # pytest -q tests -n auto
+uv run pytest tests/test_runner.py   # single file
 ```
 
-## Development & testing 🧰
-- Dry-run validation: `uv run python -m pipeline_scheduler.interfaces.cli --pipeline ./pipelines/example_pipeline_simple.yaml --dry-run`.
-- Unit tests: add `pytest` mocks for the Docker client to assert hooks order and env injection.
-- CI recommendation: validate all YAML in `pipelines/` and run unit tests.
+## License
 
-## Contributing
-- Keep changes small and focused; add tests for behaviour changes.
-
-## Useful links
-- Pipeline docs: [docs/pipeline.md](docs/pipeline.md)
-- Models: [src/pipeline_scheduler/domain/models.py](src/pipeline_scheduler/domain/models.py)
-- Runner: [src/pipeline_scheduler/application/runner.py](src/pipeline_scheduler/application/runner.py)
-- CLI: [src/pipeline_scheduler/interfaces/cli.py](src/pipeline_scheduler/interfaces/cli.py)
-
-License MIT
+MIT
