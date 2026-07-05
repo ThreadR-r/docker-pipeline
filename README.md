@@ -176,9 +176,9 @@ uv run pytest tests/test_runner.py   # single file
 uv run pytest tests/test_runner.py::test_name   # single test
 ```
 
-`just test` also emits an HTML coverage report at `reports/coverage/index.html` (gitignored).
+`just test` also emits an HTML coverage report at `reports/coverage/index.html` (gitignored). Coverage has a minimum floor (`fail_under = 80` in `pyproject.toml`'s `[tool.coverage.report]`) — set as a forcing function ahead of actual coverage reaching it; `just test`/`just check`/the `prek` pytest hook currently fail until it does. See `TASKS.md` for what's untested.
 
-Pre-commit hooks (ruff, ty, basic file hygiene) run via [`prek`](https://github.com/j178/prek), invoked ephemerally with `uvx` — no extra install needed beyond `uv`:
+Pre-commit hooks (ruff, ty, gitleaks, pytest+coverage, basic file hygiene) run via [`prek`](https://github.com/j178/prek), invoked ephemerally with `uvx` — no extra install needed beyond `uv`:
 
 ```bash
 just prek-install   # wire prek into .git/hooks, once

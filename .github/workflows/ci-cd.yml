@@ -92,8 +92,21 @@ jobs:
       - name: Run hadolint on Dockerfile
         uses: hadolint/hadolint-action@v3.3.0
 
+  gitleaks:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run gitleaks
+        uses: gitleaks/gitleaks-action@v3.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   publish:
-    needs: [tests, hadolint, compute-env]
+    needs: [tests, hadolint, gitleaks, compute-env]
 
     permissions:
       contents: read
