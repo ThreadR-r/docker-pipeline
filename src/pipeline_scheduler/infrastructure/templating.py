@@ -29,7 +29,9 @@ def render_pipeline(
         merged.update(params)
 
     # Always use strict undefined behavior: missing variables raise errors.
-    env = Environment(undefined=StrictUndefined, autoescape=False)
+    # autoescape is intentionally off: output is a YAML config, not HTML — escaping
+    # would corrupt legitimate values containing &, <, >, or quotes (e.g. cmd strings).
+    env = Environment(undefined=StrictUndefined, autoescape=False)  # nosec B701
     template = env.from_string(content)
     rendered = template.render(**merged)
     obj = yaml.safe_load(rendered)

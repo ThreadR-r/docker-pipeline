@@ -114,7 +114,8 @@ async def trigger(payload: Dict[str, Any], api_key: str = Depends(get_api_key)):
     with state.jobs_lock:
         if state.running.get("job"):
             raise HTTPException(
-                status_code=http_status.HTTP_409_CONFLICT, detail="Pipeline already running"
+                status_code=http_status.HTTP_409_CONFLICT,
+                detail="Pipeline already running",
             )
         state.jobs[job_id] = job
         state.running["job"] = job_id

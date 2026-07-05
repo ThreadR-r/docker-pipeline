@@ -16,7 +16,12 @@ def _import_docker():
 def get_client(base_url: Optional[str] = None):
     docker = _import_docker()
     if base_url:
-        return docker.DockerClient(base_url=base_url)
+        kwargs = {"base_url": base_url}
+        if base_url.startswith("tcp://"):
+            tls = docker.utils.kwargs_from_env().get("tls")
+            if tls:
+                kwargs["tls"] = tls
+        return docker.DockerClient(**kwargs)
     return docker.from_env()
 
 

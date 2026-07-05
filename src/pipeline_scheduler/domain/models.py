@@ -163,4 +163,3 @@ class ShowPipeline(BaseModel):
     name: Optional[str] = None
     created_at: Optional[str] = None
     steps: List[ShowStep] = []
-

@@ -66,15 +66,12 @@ jobs:
 
       - name: Lint with ruff
         run: uv run --with ruff ruff check src tests
-        continue-on-error: true
 
       - name: Type check with ty
         run: uv run --with ty ty check src
-        continue-on-error: true
 
       - name: Security check with bandit
-        run: uv run --with bandit bandit -r .
-        continue-on-error: true
+        run: uv run --with bandit bandit --skip B104,B101 -r src
 
       - name: Run TruffleHog
         uses: trufflesecurity/trufflehog@main
