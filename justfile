@@ -1,5 +1,8 @@
 # Makefile for ruff, ty (astral), pytest
 
+default:
+    just --list
+
 all: check
 
 check: lint type test security
