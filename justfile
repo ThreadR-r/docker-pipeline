@@ -5,7 +5,10 @@ default:
 
 all: check
 
-check: lint type test security
+check: format lint type test security
+
+format:
+    uv run --with ruff ruff format .
 
 lint:
     uv run --with ruff ruff check .
