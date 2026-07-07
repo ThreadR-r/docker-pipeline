@@ -32,3 +32,12 @@ testing = [
     "pytest-sugar>=1.1.1",
     "pytest-xdist>=3.8.0",
 ]
+
+[tool.coverage.run]
+source = ["pipeline_scheduler"]
+branch = true
+data_file = "reports/.coverage"
+
+[tool.coverage.report]
+exclude_lines = ["pragma: no cover", "if __name__ == .__main__.:"]
+fail_under = 40

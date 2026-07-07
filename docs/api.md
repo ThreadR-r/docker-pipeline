@@ -8,9 +8,9 @@ Overview
 
 Endpoints
 - `POST /api/v1/trigger` — trigger a pipeline run
-  - JSON body: `{ "pipeline_file": "/app/pipelines/example_pipeline.yaml", "params": {...} }` (both fields optional)
+  - JSON body: `{ "pipeline_params": {...} }` (optional) — merged over the server's configured `PIPELINE_PARAMS`/`--params` defaults for this run. The pipeline file itself is always the one the server was started with (`PIPELINE_FILE`/`--pipeline`); it cannot be overridden per-request.
   - Returns 202 Accepted with `{ "status": "accepted", "job_id": "..." }` on success
-  - Returns 400 on invalid pipeline, 401 on missing/invalid API key, 409 if a run is active
+  - Returns 400 on invalid pipeline, 401 on missing/invalid API key, 403 if the pipeline sets `metadata.allow_api_trigger: false`, 409 if a run is active
 
 - `GET /api/v1/status` — get status; optional `job_id` query param to get specific job
 
@@ -27,7 +27,7 @@ Examples
 curl -X POST "http://localhost:8080/api/v1/trigger" \
   -H "Content-Type: application/json" \
   -H "X-API-Key: $API_KEY" \
-  -d '{"pipeline_file":"/app/pipelines/example_pipeline.yaml"}'
+  -d '{"pipeline_params": {"key": "value"}}'
 ```
 
 Notes & Security

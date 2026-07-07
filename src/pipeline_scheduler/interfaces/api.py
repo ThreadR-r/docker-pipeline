@@ -1,3 +1,4 @@
+import hmac
 import os
 import uuid
 import asyncio
@@ -6,6 +7,7 @@ from typing import Optional, Dict, Any
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi import status as http_status
 from fastapi.security.api_key import APIKeyHeader
+from loguru import logger
 
 from pipeline_scheduler.infrastructure.templating import render_pipeline
 from pipeline_scheduler.domain.models import (
@@ -54,7 +56,9 @@ def get_api_key(key: Optional[str] = Depends(api_key_header)):
             status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="API key not configured",
         )
-    if not key or key not in allowed:
+    if not key or not any(
+        hmac.compare_digest(key, allowed_key) for allowed_key in allowed
+    ):
         raise HTTPException(
             status_code=http_status.HTTP_401_UNAUTHORIZED, detail="Invalid API key"
         )
@@ -85,8 +89,12 @@ async def trigger(payload: Dict[str, Any], api_key: str = Depends(get_api_key)):
     try:
         raw = render_pipeline(path=CONFIG.pipeline_file, params=config_params)
         pipeline = PipelineModel(**raw)
-    except Exception as e:
-        raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception:
+        logger.exception("Failed to render/validate pipeline for trigger request")
+        raise HTTPException(
+            status_code=http_status.HTTP_400_BAD_REQUEST,
+            detail="Invalid pipeline configuration",
+        )
 
     # Respect pipeline metadata: disallow API-triggered runs when explicitly disabled
     if not getattr(pipeline.metadata, "allow_api_trigger", True):
@@ -114,7 +122,8 @@ async def trigger(payload: Dict[str, Any], api_key: str = Depends(get_api_key)):
     with state.jobs_lock:
         if state.running.get("job"):
             raise HTTPException(
-                status_code=http_status.HTTP_409_CONFLICT, detail="Pipeline already running"
+                status_code=http_status.HTTP_409_CONFLICT,
+                detail="Pipeline already running",
             )
         state.jobs[job_id] = job
         state.running["job"] = job_id
@@ -197,8 +206,12 @@ async def show(
             path=CONFIG.pipeline_file, params=CONFIG.pipeline_params or {}
         )
         pipeline = PipelineModel(**raw)
-    except Exception as e:
-        raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception:
+        logger.exception("Failed to render/validate pipeline for show request")
+        raise HTTPException(
+            status_code=http_status.HTTP_400_BAD_REQUEST,
+            detail="Invalid pipeline configuration",
+        )
     sp = build_static_tree(pipeline)
     text = render_tree_ascii(sp, color=False)
     if color:

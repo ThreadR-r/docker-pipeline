@@ -2,22 +2,18 @@
 # Docker-Pipeline 🚀
 
 [![CI/CD](https://github.com/ThreadR-r/docker-pipeline/actions/workflows/ci-cd.yml/badge.svg?branch=main)](https://github.com/ThreadR-r/docker-pipeline/actions/workflows/ci-cd.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Python 3.14](https://img.shields.io/badge/python-3.14-blue.svg)](pyproject.toml)
 
-Lightweight declarative orchestrator for running sequences of Docker containers. Pipelines are plain YAML — each step runs in a real, isolated container with retries, timeouts, pull policies, removal rules, and lifecycle hooks. No Airflow, no Kestra. Just containers and YAML.
+**Run sequences of Docker containers as a pipeline — retries, timeouts, pull policies, lifecycle hooks, cron scheduling, and an HTTP API, with zero opinions about what's inside your images.**
 
-## Features ✨
+Pipelines are plain YAML. Each step runs in a real, isolated container. No Airflow, no Kestra. Just containers and YAML.
 
-- Retries with exponential backoff and per-step timeouts
-- Pull policies: `always`, `never`, `if-not-present`
-- Container removal policies: `always`, `never`, `on_success`, `on_failure`
-- Lifecycle hooks: `on_retry_step` and `on_failure_step` — each hook is itself a Docker container
-- Jinja2-templated pipelines with variable injection via `--params`
-- Cron scheduling via `metadata.schedule`
-- HTTP API for ad-hoc triggers and run status (API-key protected)
-- One-shot CLI execution with `--run-once`
-- Live ASCII tree view of pipeline state with `--show`
+Airflow, Prefect, and Dagster all want you to define your workflow inside their framework — DAGs as Python objects, tasks as decorated functions — which fights against keeping business logic completely opaque inside a Docker image. Kestra is YAML-based like this project, but its more advanced features sit behind a paid plan. n8n wants to be a whole hosted app with its own database and UI. This project is deliberately just the thin layer underneath: run the container, watch the exit code, retry or run a failure hook, get out of the way. It never needs to know what's inside a step's image.
 
 ## Quick Start 🧪
+
+Prerequisites: Python `3.14.*` + [`uv`](https://docs.astral.sh/uv/), and a reachable Docker daemon (`/var/run/docker.sock` by default, or set `DOCKER_BASE_URL`).
 
 ### Dry run — validate without executing
 
@@ -81,6 +77,25 @@ uv run python -m pipeline_scheduler.interfaces.cli \
   --pipeline ./pipelines/example_pipeline_simple.yaml --show
 ```
 
+```bash
+docker run --rm \
+  -v $(pwd)/pipelines/example_pipeline_simple.yaml:/app/pipelines/example_pipeline_simple.yaml:ro \
+  ghcr.io/threadr-r/docker-pipeline:latest \
+  --pipeline /app/pipelines/example_pipeline_simple.yaml --show
+```
+
+## Features ✨
+
+- Retries with exponential backoff and per-step timeouts
+- Pull policies: `always`, `never`, `if-not-present`
+- Container removal policies: `always`, `never`, `on_success`, `on_failure`
+- Lifecycle hooks: `on_retry_step` and `on_failure_step` — each hook is itself a Docker container
+- Jinja2-templated pipelines with variable injection via `--params`
+- Cron scheduling via `metadata.schedule`
+- HTTP API for ad-hoc triggers and run status (API-key protected)
+- One-shot CLI execution with `--run-once`
+- ASCII tree view of pipeline structure via `--show` (static), or live per-step status and attempt history via `GET /api/v1/show?job_id=`
+
 ## Configuration ⚙️
 
 | Env var | CLI flag | Default | Description |
@@ -88,7 +103,7 @@ uv run python -m pipeline_scheduler.interfaces.cli \
 | `PIPELINE_FILE` | `--pipeline` | `/app/pipelines/example_pipeline_simple.yaml` | Path to pipeline YAML |
 | `PIPELINE_PARAMS` | `--params` | `{}` | Jinja2 template params as JSON string |
 | `CRON_SCHEDULE` | `--cron-schedule` | `None` | Override the schedule from pipeline metadata |
-| `DOCKER_BASE_URL` | `--docker-url` | `unix:///var/run/docker.sock` | Docker socket or API URL |
+| `DOCKER_BASE_URL` | `--docker-url` | `unix:///var/run/docker.sock` | Docker socket, or `tcp://host:port` for a remote daemon. For `tcp://`, TLS is applied automatically if the standard Docker CLI env vars `DOCKER_TLS_VERIFY`/`DOCKER_CERT_PATH` are set |
 | `API_ENABLED` | `--api-enabled` | `true` | Enable HTTP API |
 | `API_HOST` | `--api-host` | `0.0.0.0` | API bind host |
 | `API_PORT` | `--api-port` | `8080` | API port |
@@ -164,8 +179,18 @@ All endpoints except `/health` require the API key header (`X-API-Key` by defaul
 ```bash
 uv sync --group testing              # install deps including test group
 just check                           # lint → type → test → security
-just test                            # pytest -q tests -n auto
+just test                            # pytest -q tests -n auto, writes reports/coverage/index.html
 uv run pytest tests/test_runner.py   # single file
+uv run pytest tests/test_runner.py::test_name   # single test
+```
+
+`just test` also emits an HTML coverage report at `reports/coverage/index.html` (gitignored). Coverage has a minimum floor (`fail_under = 80` in `pyproject.toml`'s `[tool.coverage.report]`) — set as a forcing function ahead of actual coverage reaching it; `just test`/`just check`/the `prek` pytest hook currently fail until it does.
+
+Pre-commit hooks (ruff, ty, gitleaks, pytest+coverage, basic file hygiene) run via [`prek`](https://github.com/j178/prek), invoked ephemerally with `uvx` — no extra install needed beyond `uv`:
+
+```bash
+just prek-install   # wire prek into .git/hooks, once
+just prek           # run all hooks against the whole repo
 ```
 
 ## License

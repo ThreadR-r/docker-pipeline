@@ -8,7 +8,7 @@ on:
   push:
     tags:
       - 'v*'
-    branches: [ main]
+    branches: [ '**' ]
 
 env:
   REGISTRY: ghcr.io
@@ -16,6 +16,10 @@ env:
 
 jobs:
   compute-env:
+    # Only main (published as 'dev') or version tags get a publishable image.
+    # Everything else (feat/, fix/, etc.) still runs tests/hadolint/gitleaks above,
+    # just skips this and the publish job.
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     outputs:
       push_latest: ${{ steps.settag.outputs.push_latest }}
@@ -66,18 +70,15 @@ jobs:
 
       - name: Lint with ruff
         run: uv run --with ruff ruff check src tests
-        continue-on-error: true
 
       - name: Type check with ty
         run: uv run --with ty ty check src
-        continue-on-error: true
 
       - name: Security check with bandit
-        run: uv run --with bandit bandit -r .
-        continue-on-error: true
+        run: uv run --with bandit bandit --skip B104,B101 -r src
 
       - name: Run TruffleHog
-        uses: trufflesecurity/trufflehog@main
+        uses: trufflesecurity/trufflehog@v3.95.8
         with:
           extra_args: --results=verified,unknown
 
@@ -95,8 +96,22 @@ jobs:
       - name: Run hadolint on Dockerfile
         uses: hadolint/hadolint-action@v3.3.0
 
+  gitleaks:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run gitleaks
+        uses: gitleaks/gitleaks-action@v3.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   publish:
-    needs: [tests, hadolint, compute-env]
+    needs: [tests, hadolint, gitleaks, compute-env]
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
 
     permissions:
       contents: read
