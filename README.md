@@ -2,29 +2,18 @@
 # Docker-Pipeline 🚀
 
 [![CI/CD](https://github.com/ThreadR-r/docker-pipeline/actions/workflows/ci-cd.yml/badge.svg?branch=main)](https://github.com/ThreadR-r/docker-pipeline/actions/workflows/ci-cd.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Python 3.14](https://img.shields.io/badge/python-3.14-blue.svg)](pyproject.toml)
 
-Lightweight declarative orchestrator for running sequences of Docker containers. Pipelines are plain YAML — each step runs in a real, isolated container with retries, timeouts, pull policies, removal rules, and lifecycle hooks. No Airflow, no Kestra. Just containers and YAML.
+**Run sequences of Docker containers as a pipeline — retries, timeouts, pull policies, lifecycle hooks, cron scheduling, and an HTTP API, with zero opinions about what's inside your images.**
+
+Pipelines are plain YAML. Each step runs in a real, isolated container. No Airflow, no Kestra. Just containers and YAML.
 
 Airflow, Prefect, and Dagster all want you to define your workflow inside their framework — DAGs as Python objects, tasks as decorated functions — which fights against keeping business logic completely opaque inside a Docker image. Kestra is YAML-based like this project, but its more advanced features sit behind a paid plan. n8n wants to be a whole hosted app with its own database and UI. This project is deliberately just the thin layer underneath: run the container, watch the exit code, retry or run a failure hook, get out of the way. It never needs to know what's inside a step's image.
 
-## Requirements
-
-- Python `3.14.*` (pinned in `pyproject.toml`) and [`uv`](https://docs.astral.sh/uv/)
-- A reachable Docker daemon (`/var/run/docker.sock` by default, or set `DOCKER_BASE_URL`)
-
-## Features ✨
-
-- Retries with exponential backoff and per-step timeouts
-- Pull policies: `always`, `never`, `if-not-present`
-- Container removal policies: `always`, `never`, `on_success`, `on_failure`
-- Lifecycle hooks: `on_retry_step` and `on_failure_step` — each hook is itself a Docker container
-- Jinja2-templated pipelines with variable injection via `--params`
-- Cron scheduling via `metadata.schedule`
-- HTTP API for ad-hoc triggers and run status (API-key protected)
-- One-shot CLI execution with `--run-once`
-- ASCII tree view of pipeline structure via `--show` (static), or live per-step status and attempt history via `GET /api/v1/show?job_id=`
-
 ## Quick Start 🧪
+
+Prerequisites: Python `3.14.*` + [`uv`](https://docs.astral.sh/uv/), and a reachable Docker daemon (`/var/run/docker.sock` by default, or set `DOCKER_BASE_URL`).
 
 ### Dry run — validate without executing
 
@@ -87,6 +76,25 @@ docker run --rm \
 uv run python -m pipeline_scheduler.interfaces.cli \
   --pipeline ./pipelines/example_pipeline_simple.yaml --show
 ```
+
+```bash
+docker run --rm \
+  -v $(pwd)/pipelines/example_pipeline_simple.yaml:/app/pipelines/example_pipeline_simple.yaml:ro \
+  ghcr.io/threadr-r/docker-pipeline:latest \
+  --pipeline /app/pipelines/example_pipeline_simple.yaml --show
+```
+
+## Features ✨
+
+- Retries with exponential backoff and per-step timeouts
+- Pull policies: `always`, `never`, `if-not-present`
+- Container removal policies: `always`, `never`, `on_success`, `on_failure`
+- Lifecycle hooks: `on_retry_step` and `on_failure_step` — each hook is itself a Docker container
+- Jinja2-templated pipelines with variable injection via `--params`
+- Cron scheduling via `metadata.schedule`
+- HTTP API for ad-hoc triggers and run status (API-key protected)
+- One-shot CLI execution with `--run-once`
+- ASCII tree view of pipeline structure via `--show` (static), or live per-step status and attempt history via `GET /api/v1/show?job_id=`
 
 ## Configuration ⚙️
 
@@ -176,7 +184,7 @@ uv run pytest tests/test_runner.py   # single file
 uv run pytest tests/test_runner.py::test_name   # single test
 ```
 
-`just test` also emits an HTML coverage report at `reports/coverage/index.html` (gitignored). Coverage has a minimum floor (`fail_under = 80` in `pyproject.toml`'s `[tool.coverage.report]`) — set as a forcing function ahead of actual coverage reaching it; `just test`/`just check`/the `prek` pytest hook currently fail until it does. See `TASKS.md` for what's untested.
+`just test` also emits an HTML coverage report at `reports/coverage/index.html` (gitignored). Coverage has a minimum floor (`fail_under = 80` in `pyproject.toml`'s `[tool.coverage.report]`) — set as a forcing function ahead of actual coverage reaching it; `just test`/`just check`/the `prek` pytest hook currently fail until it does.
 
 Pre-commit hooks (ruff, ty, gitleaks, pytest+coverage, basic file hygiene) run via [`prek`](https://github.com/j178/prek), invoked ephemerally with `uvx` — no extra install needed beyond `uv`:
 

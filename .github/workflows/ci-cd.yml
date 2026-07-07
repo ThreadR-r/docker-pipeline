@@ -78,7 +78,7 @@ jobs:
         run: uv run --with bandit bandit --skip B104,B101 -r src
 
       - name: Run TruffleHog
-        uses: trufflesecurity/trufflehog@main
+        uses: trufflesecurity/trufflehog@v3.95.8
         with:
           extra_args: --results=verified,unknown
 
